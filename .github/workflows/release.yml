@@ -16,9 +16,11 @@ jobs:
       contents: write   # needed to create releases and upload assets
 
     # Job-level env so that step `if` conditions can read them.
+    # NOTE: APPLE_CERTIFICATE is intentionally NOT here — Tauri's bundler
+    # reads it directly and fails when the .p12 contains multiple identities.
+    # Instead, we import the cert into a keychain and let codesign find it
+    # via APPLE_SIGNING_IDENTITY.
     env:
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
       APPLE_ID: ${{ secrets.APPLE_ID }}
       APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
@@ -56,7 +58,10 @@ jobs:
       #   APPLE_CERTIFICATE_PASSWORD – password for the .p12
 
       - name: Import Apple certificate
-        if: env.APPLE_CERTIFICATE != ''
+        if: env.APPLE_SIGNING_IDENTITY != ''
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
           security create-keychain -p actions build.keychain
