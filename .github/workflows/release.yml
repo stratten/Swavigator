@@ -15,6 +15,15 @@ jobs:
     permissions:
       contents: write   # needed to create releases and upload assets
 
+    # Job-level env so that step `if` conditions can read them.
+    env:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -48,9 +57,6 @@ jobs:
 
       - name: Import Apple certificate
         if: env.APPLE_CERTIFICATE != ''
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
           security create-keychain -p actions build.keychain
@@ -63,18 +69,10 @@ jobs:
           rm certificate.p12
 
       - name: Build Tauri app
-        env:
-          # If signing identity is set, Tauri uses it automatically via the
-          # macOS.signingIdentity field in tauri.conf.json or this env var.
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: npm run tauri build
 
       - name: Notarize DMG
         if: env.APPLE_ID != ''
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           DMG=$(find src-tauri/target/release/bundle/dmg -name '*.dmg' | head -1)
           xcrun notarytool submit "$DMG" \
