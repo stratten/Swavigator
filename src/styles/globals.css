@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+/* Base styles for the floating panel */
+:root {
+  --panel-bg: rgb(24, 24, 27);
+  --panel-border: rgba(82, 82, 91, 0.85);
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --accent-blue: #3b82f6;
+  --accent-green: #22c55e;
+  --active-space-bg: rgba(59, 130, 246, 0.15);
+  --active-space-border: rgba(59, 130, 246, 0.4);
+  --hover-bg: rgba(63, 63, 70, 0.4);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: "Helvetica Neue Light", "Helvetica Neue", "HelveticaNeue-Light", "HelveticaNeue", Helvetica, sans-serif;
+  font-weight: 300;
+  font-size: 13px;
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+#root {
+  height: 100%;
+}
+
+/* Drag region for the title bar */
+[data-tauri-drag-region] {
+  cursor: grab;
+}
+
+[data-tauri-drag-region]:active {
+  cursor: grabbing;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 3px;
+  height: 3px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(113, 113, 122, 0.4);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(113, 113, 122, 0.6);
+}
+
+/* Custom select styling to override native macOS chrome */
+.view-mode-select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background: rgba(63, 63, 70, 0.6);
+  color: var(--text-primary);
+  border: 1px solid var(--panel-border);
+  padding-right: 20px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23a1a1aa' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+}
+
+.view-mode-select option {
+  background: rgb(39, 39, 42);
+  color: var(--text-primary);
+}

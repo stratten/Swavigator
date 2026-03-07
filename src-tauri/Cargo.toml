@@ -1,0 +1,33 @@
+[package]
+name = "swavigator"
+version = "0.1.0"
+description = "A macOS workspace manager with space labeling and navigation."
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "swavigator_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
+tauri-plugin-opener = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "5"
+tokio = { version = "1", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
+log = "0.4"
+env_logger = "0.11"
+uuid = { version = "1", features = ["v4"] }
+plist = "1"
+glob = "0.3"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

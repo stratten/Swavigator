@@ -1,0 +1,110 @@
+name: Release
+
+# Trigger on version tags: v0.1.0, v1.2.3, etc.
+on:
+  push:
+    tags:
+      - "v*"
+
+  # Allow manual trigger from the Actions tab.
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    permissions:
+      contents: write   # needed to create releases and upload assets
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # ── Build ────────────────────────────────────────────────────────
+      # For unsigned builds (no Apple Developer account), just build normally.
+      # For signed + notarized builds, set these repository secrets:
+      #   APPLE_SIGNING_IDENTITY  – e.g. "Developer ID Application: Name (TEAMID)"
+      #   APPLE_ID                – your Apple ID email
+      #   APPLE_PASSWORD          – app-specific password
+      #   APPLE_TEAM_ID           – your 10-char team ID
+      #   APPLE_CERTIFICATE       – base64-encoded .p12 certificate
+      #   APPLE_CERTIFICATE_PASSWORD – password for the .p12
+
+      - name: Import Apple certificate
+        if: env.APPLE_CERTIFICATE != ''
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p actions build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions build.keychain
+          security import certificate.p12 -k build.keychain \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k actions build.keychain
+          rm certificate.p12
+
+      - name: Build Tauri app
+        env:
+          # If signing identity is set, Tauri uses it automatically via the
+          # macOS.signingIdentity field in tauri.conf.json or this env var.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: npm run tauri build
+
+      - name: Notarize DMG
+        if: env.APPLE_ID != ''
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          DMG=$(find src-tauri/target/release/bundle/dmg -name '*.dmg' | head -1)
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$DMG"
+
+      # ── Upload artifacts ─────────────────────────────────────────────
+
+      - name: Gather release assets
+        id: assets
+        run: |
+          DMG=$(find src-tauri/target/release/bundle/dmg -name '*.dmg' | head -1)
+          APP_DIR=$(find src-tauri/target/release/bundle/macos -name '*.app' -maxdepth 1 | head -1)
+
+          # Create a zip of the .app for users who prefer drag-to-install.
+          APP_NAME=$(basename "$APP_DIR" .app)
+          APP_ZIP="src-tauri/target/release/bundle/macos/${APP_NAME}.app.zip"
+          ditto -c -k --keepParent "$APP_DIR" "$APP_ZIP"
+
+          echo "dmg=$DMG" >> "$GITHUB_OUTPUT"
+          echo "app_zip=$APP_ZIP" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            ${{ steps.assets.outputs.dmg }}
+            ${{ steps.assets.outputs.app_zip }}

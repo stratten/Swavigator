@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Prompt shown when the system asks the user to grant Accessibility access. -->
+    <key>NSAccessibilityUsageDescription</key>
+    <string>Swavigator needs Accessibility access to navigate between spaces, manage windows, and register global keyboard shortcuts.</string>
+</dict>
+</plist>
