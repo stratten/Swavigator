@@ -120,7 +120,10 @@ for w in windowList {
 }
 
 // Second pass: build results, filtering titleless windows intelligently.
+// Also deduplicate windows with the same (app, title, space) to avoid
+// counting rendering sub-windows (e.g. Sublime Text, Monosnap).
 var results: [[String: Any]] = []
+var seenWindows: Set<String> = []
 
 for c in candidates {
     let appKey = c.bundleId.isEmpty ? c.ownerName : c.bundleId
@@ -146,6 +149,13 @@ for c in candidates {
        !spaces.isEmpty {
         spaceId = spaces[0]
     }
+
+    // Deduplicate: skip if we've already seen this (app, title, space) combo.
+    // Many apps (Sublime Text, Monosnap, etc.) create multiple layer-0 windows
+    // with the same title for rendering overlays — we only want one entry.
+    let dedupeKey = "\(appKey)|\(displayTitle)|\(spaceId)"
+    if seenWindows.contains(dedupeKey) { continue }
+    seenWindows.insert(dedupeKey)
 
     // Determine if truly minimised.
     // kCGWindowIsOnscreen is false for ALL windows on non-active spaces,

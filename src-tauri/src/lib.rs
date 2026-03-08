@@ -1,4 +1,12 @@
 #![allow(dead_code)]
+// The `objc` crate's msg_send!/class! macros internally check for
+// cfg(feature = "cargo-clippy") which triggers unexpected_cfgs warnings.
+// Suppressed here since the warnings originate in external macro expansions.
+#![allow(unexpected_cfgs)]
+
+#[cfg(target_os = "macos")]
+#[macro_use]
+extern crate objc;
 
 mod apps;
 mod commands;
@@ -61,6 +69,44 @@ pub fn run() {
             commands::get_dock_suppressed,
         ])
         .setup(|app| {
+            // Set the macOS Dock icon programmatically. In dev mode the app
+            // runs as a raw binary (no .app bundle), so macOS won't pick up
+            // the .icns file. This embeds icon.png at compile time and sets
+            // it via NSApplication so the correct icon appears in the Dock
+            // regardless of how the app is launched.
+            #[cfg(target_os = "macos")]
+            #[allow(deprecated, unexpected_cfgs)]
+            {
+                use cocoa::appkit::NSImage;
+                use cocoa::base::nil;
+                use cocoa::foundation::NSData;
+
+                static ICON_BYTES: &[u8] = include_bytes!("../icons/icon-dock.png");
+                unsafe {
+                    let data = NSData::dataWithBytes_length_(
+                        nil,
+                        ICON_BYTES.as_ptr() as *const std::os::raw::c_void,
+                        ICON_BYTES.len() as u64,
+                    );
+                    let icon = NSImage::initWithData_(NSImage::alloc(nil), data);
+                    // Explicitly set size so macOS renders at the correct
+                    // resolution and respects the alpha channel.
+                    let size = cocoa::foundation::NSSize::new(512.0, 512.0);
+                    let _: () = objc::msg_send![icon, setSize: size];
+                    let ns_app: *mut objc::runtime::Object =
+                        objc::msg_send![objc::class!(NSApplication), sharedApplication];
+                    let _: () = objc::msg_send![ns_app, setApplicationIconImage: icon];
+                }
+            }
+
+            // ----- macOS permission checks -----
+            // Prompt for Accessibility, trigger Automation, and check
+            // Screen Recording — all required for full functionality.
+            #[cfg(target_os = "macos")]
+            {
+                request_macos_permissions();
+            }
+
             // Create the main window programmatically so we can call
             // disable_drag_drop_handler(). Without this, Tauri's default
             // drag-drop handler intercepts all native drag events (returning
@@ -122,4 +168,80 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Request the macOS permissions that Swavigator needs to function:
+///   1. **Accessibility** — for window navigation and space management.
+///   2. **Automation** — for controlling System Events (keyboard shortcuts).
+///   3. **Screen Recording** — for reading window titles from other apps.
+#[cfg(target_os = "macos")]
+#[allow(deprecated, unexpected_cfgs)]
+fn request_macos_permissions() {
+    // 1. Accessibility — prompt the user if not already trusted.
+    //    AXIsProcessTrustedWithOptions with kAXTrustedCheckOptionPrompt=true
+    //    shows the system dialog on first launch.
+    unsafe {
+        extern "C" {
+            fn AXIsProcessTrustedWithOptions(options: *const std::ffi::c_void) -> bool;
+        }
+
+        let key: *const objc::runtime::Object =
+            objc::msg_send![objc::class!(NSString), stringWithUTF8String:
+                b"AXTrustedCheckOptionPrompt\0".as_ptr()];
+        let yes: *const objc::runtime::Object =
+            objc::msg_send![objc::class!(NSNumber), numberWithBool: true];
+        let options: *const objc::runtime::Object =
+            objc::msg_send![objc::class!(NSDictionary),
+                dictionaryWithObject: yes
+                forKey: key];
+
+        let trusted = AXIsProcessTrustedWithOptions(options as *const std::ffi::c_void);
+        if trusted {
+            log::info!("[permissions] Accessibility: granted.");
+        } else {
+            log::warn!("[permissions] Accessibility: NOT granted — prompting user.");
+        }
+    }
+
+    // 2. Automation — trigger a harmless System Events query so macOS
+    //    shows the Automation permission prompt on first run.
+    std::thread::spawn(|| {
+        let output = std::process::Command::new("osascript")
+            .args(["-e", r#"tell application "System Events" to return name of first process"#])
+            .output();
+        match output {
+            Ok(o) if o.status.success() => {
+                log::info!("[permissions] Automation (System Events): granted.");
+            }
+            _ => {
+                log::warn!("[permissions] Automation (System Events): NOT granted or prompt shown.");
+            }
+        }
+    });
+
+    // 3. Screen Recording — use CGRequestScreenCaptureAccess() directly
+    //    from the main process so the permission prompt is associated with
+    //    Swavigator.app (not a child swift process). This triggers the
+    //    native macOS permission dialog and may require an app restart.
+    unsafe {
+        extern "C" {
+            fn CGPreflightScreenCaptureAccess() -> bool;
+            fn CGRequestScreenCaptureAccess() -> bool;
+        }
+
+        let already_granted = CGPreflightScreenCaptureAccess();
+        if already_granted {
+            log::info!("[permissions] Screen Recording: granted.");
+        } else {
+            log::warn!("[permissions] Screen Recording: NOT granted — requesting.");
+            let granted = CGRequestScreenCaptureAccess();
+            if granted {
+                log::info!("[permissions] Screen Recording: granted after prompt.");
+            } else {
+                log::warn!(
+                    "[permissions] Screen Recording: user must grant manually and restart."
+                );
+            }
+        }
+    }
 }
