@@ -30,7 +30,7 @@ export interface WindowInfo {
   appName: string;
   /** Owning application's bundle identifier. */
   bundleId: string;
-  /** Whether the window is minimised. */
+  /** Whether the window is minimized. */
   isMinimized: boolean;
   /** The space this window belongs to. */
   spaceId: number;
@@ -42,6 +42,8 @@ export interface SpaceStatePayload {
   spaces: SpaceInfo[];
   /** The currently active space ID. */
   activeSpaceId: number;
+  /** Windows that are currently minimized (not on any space). */
+  minimizedWindows: WindowInfo[];
   /** Timestamp of this snapshot. */
   timestamp: number;
 }
@@ -151,4 +153,6 @@ export interface UserSettings {
   expandedHorizontalHeight?: number;
   /** Percentage of space allocated to the app tray (0–100). Default 30. */
   traySplitPercent?: number;
+  /** Whether to show the Minimized windows section. Default true. */
+  showMinimized?: boolean;
 }

@@ -32,8 +32,10 @@ export function AppGroupCard({
   const [editing, setEditing] = useState(false);
   const [nameDraft, setNameDraft] = useState(group.name);
   const [showMenu, setShowMenu] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   // In horizontal mode, compute the exact number of icon columns based on
   // the measured container height, then derive an explicit grid width.
@@ -347,9 +349,16 @@ export function AppGroupCard({
         </span>
 
         {/* Group menu button */}
-        <div className="relative">
+        <div>
           <button
-            onClick={() => setShowMenu(!showMenu)}
+            ref={menuButtonRef}
+            onClick={() => {
+              if (!showMenu && menuButtonRef.current) {
+                const rect = menuButtonRef.current.getBoundingClientRect();
+                setMenuPos({ x: rect.right, y: rect.bottom + 2 });
+              }
+              setShowMenu(!showMenu);
+            }}
             className="flex-shrink-0 cursor-pointer"
             style={{
               color: "var(--text-muted)",
@@ -370,18 +379,22 @@ export function AppGroupCard({
             ⋯
           </button>
 
-          {showMenu && (
+          {showMenu && menuPos && (
             <>
               <div
                 className="fixed inset-0 z-40"
                 onClick={() => setShowMenu(false)}
               />
               <div
-                className="absolute right-0 top-6 z-50 rounded shadow-lg py-1"
+                className="fixed z-50 rounded shadow-lg py-1"
                 style={{
+                  right: `${window.innerWidth - menuPos.x}px`,
+                  top: `${menuPos.y}px`,
                   background: "rgb(39, 39, 42)",
                   border: "1px solid var(--panel-border)",
                   minWidth: "140px",
+                  paddingLeft: "2px",
+                  paddingRight: "2px",
                 }}
               >
                 <button

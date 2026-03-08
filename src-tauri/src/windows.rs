@@ -56,9 +56,11 @@ guard let windowList = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[S
     exit(1)
 }
 
-// Build a mapping of bundle ID by PID for running apps.
+// Build mappings by PID for running apps.
 var bundleByPID: [Int32: String] = [:]
+var appByPID: [Int32: NSRunningApplication] = [:]
 for app in NSWorkspace.shared.runningApplications {
+    appByPID[app.processIdentifier] = app
     if let bid = app.bundleIdentifier {
         bundleByPID[app.processIdentifier] = bid
     }
@@ -70,7 +72,58 @@ let skipBundles: Set<String> = [
     "com.apple.SystemUIServer",
     "com.apple.controlcenter",
     "com.apple.notificationcenterui",
+    "com.apple.loginwindow",
+    "com.apple.Spotlight",
+    "com.apple.LocalAuthenticationRemoteService",
+    "com.apple.AmbientDisplayAgent",
+    "com.apple.universalaccessd",
+    "com.apple.backgroundtaskmanagementagent",
+    "com.apple.coreservices.uiagent",
 ]
+
+// Additional owner names to skip (for processes without bundle IDs).
+let skipOwners: Set<String> = [
+    "loginwindow",
+    "Spotlight",
+    "LocalAuthenticationRemoteService",
+    "Open and Save Panel Service",
+    "Privacy & Security",
+    "wine64-preloader",
+]
+
+// Helper: check if an AX window is minimized.
+// Returns: (foundInAX: Bool, isMinimized: Bool)
+// If we can't find the window in AX, we return (false, false) so the caller
+// knows this window isn't a real user window.
+func checkWindowInAX(pid: Int32, windowTitle: String) -> (found: Bool, minimized: Bool) {
+    let appRef = AXUIElementCreateApplication(pid)
+    var windowsRef: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(
+        appRef, kAXWindowsAttribute as CFString, &windowsRef
+    ) == .success, let axWindows = windowsRef as? [AXUIElement] else {
+        return (false, false)
+    }
+    
+    for axWin in axWindows {
+        var titleRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(
+            axWin, kAXTitleAttribute as CFString, &titleRef
+        ) == .success, let title = titleRef as? String {
+            // Match by title (exact or contains).
+            if title == windowTitle || title.contains(windowTitle) || windowTitle.contains(title) {
+                var minRef: CFTypeRef?
+                if AXUIElementCopyAttributeValue(
+                    axWin, kAXMinimizedAttribute as CFString, &minRef
+                ) == .success, let isMin = minRef as? Bool {
+                    return (true, isMin)
+                }
+                // Found the window but couldn't read minimized state - assume not minimized.
+                return (true, false)
+            }
+        }
+    }
+    return (false, false)
+}
 
 // First pass: collect candidate windows and track which apps have titled windows.
 struct CandidateWindow {
@@ -79,7 +132,7 @@ struct CandidateWindow {
     let ownerName: String
     let bundleId: String
     let pid: Int32
-    let hasCGTitle: Bool  // whether this window had a non-empty kCGWindowName
+    let hasCGTitle: Bool
     let bounds: (Double, Double)?
 }
 
@@ -98,6 +151,13 @@ for w in windowList {
     // Skip non-layer-0 windows (menus, overlays, tooltips, etc.).
     if layer != 0 { continue }
     if skipBundles.contains(bundleId) { continue }
+    if skipOwners.contains(ownerName) { continue }
+    
+    // Skip apps that are not "regular" (i.e., accessory/background apps).
+    // These are menu bar apps, agents, etc. that shouldn't appear in window lists.
+    if let app = appByPID[pid] {
+        if app.activationPolicy != .regular { continue }
+    }
 
     let windowBounds: (Double, Double)?
     if let b = w[kCGWindowBounds as String] as? [String: Any],
@@ -120,8 +180,6 @@ for w in windowList {
 }
 
 // Second pass: build results, filtering titleless windows intelligently.
-// Also deduplicate windows with the same (app, title, space) to avoid
-// counting rendering sub-windows (e.g. Sublime Text, Monosnap).
 var results: [[String: Any]] = []
 var seenWindows: Set<String> = []
 
@@ -129,11 +187,9 @@ for c in candidates {
     let appKey = c.bundleId.isEmpty ? c.ownerName : c.bundleId
 
     if !c.hasCGTitle {
-        // Only include titleless windows for apps that have NO titled windows
-        // anywhere (i.e., apps that exclusively use custom window types).
+        // Only include titleless windows for apps that have NO titled windows.
         if appsWithTitledWindows.contains(appKey) { continue }
-
-        // Still require reasonable dimensions to exclude tiny helper windows.
+        // Still require reasonable dimensions.
         if let (w, h) = c.bounds {
             if w < 100 || h < 50 { continue }
         } else {
@@ -151,20 +207,24 @@ for c in candidates {
     }
 
     // Deduplicate: skip if we've already seen this (app, title, space) combo.
-    // Many apps (Sublime Text, Monosnap, etc.) create multiple layer-0 windows
-    // with the same title for rendering overlays — we only want one entry.
     let dedupeKey = "\(appKey)|\(displayTitle)|\(spaceId)"
     if seenWindows.contains(dedupeKey) { continue }
     seenWindows.insert(dedupeKey)
 
-    // Determine if truly minimised.
-    // kCGWindowIsOnscreen is false for ALL windows on non-active spaces,
-    // not just minimised ones. A truly minimised window is off-screen
-    // AND not mapped to any regular space (spaceId == 0).
-    let isOnScreen = windowList.first(where: {
-        ($0[kCGWindowNumber as String] as? CGWindowID) == c.wid
-    })?[kCGWindowIsOnscreen as String] as? Bool ?? false
-    let isMinimized = !isOnScreen && spaceId == 0
+    // Check actual minimized state via the Accessibility API.
+    // If we can't find this window in AX, it's not a real user window - skip it.
+    let (foundInAX, isMinimized) = checkWindowInAX(pid: c.pid, windowTitle: displayTitle)
+    
+    // If spaceId is 0 (not on any space) and window isn't in AX tree, skip it entirely.
+    // These are internal helper windows or windows from apps with no user-facing windows.
+    if spaceId == 0 && !foundInAX { continue }
+    
+    // If spaceId is 0 and window is in AX but NOT minimized, skip it.
+    // This catches background windows that aren't truly minimized.
+    if spaceId == 0 && foundInAX && !isMinimized { continue }
+    
+    // If minimized, override spaceId to 0 so it groups correctly in Minimized section.
+    let finalSpaceId = isMinimized ? 0 : spaceId
 
     results.append([
         "windowId": Int(c.wid),
@@ -172,7 +232,7 @@ for c in candidates {
         "appName": c.ownerName,
         "bundleId": c.bundleId,
         "isMinimized": isMinimized,
-        "spaceId": spaceId,
+        "spaceId": finalSpaceId,
     ])
 }
 

@@ -30,6 +30,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            // Core commands (spaces, settings, groups)
             commands::get_space_state,
             commands::get_cursor_position,
             commands::log_from_frontend,
@@ -41,8 +42,6 @@ pub fn run() {
             commands::close_space,
             commands::update_settings,
             commands::get_settings,
-            commands::get_app_icon,
-            // App groups
             commands::get_app_groups,
             commands::create_app_group,
             commands::update_app_group,
@@ -53,20 +52,23 @@ pub fn run() {
             commands::reorder_app_groups,
             commands::set_app_tray_visible,
             commands::get_app_tray_visible,
-            // App discovery & launching
-            commands::get_dock_apps,
-            commands::get_installed_apps,
-            commands::get_running_apps,
-            commands::get_all_discoverable_apps,
-            commands::launch_app,
-            commands::open_path,
-            commands::open_url,
-            commands::get_path_icon,
-            commands::get_app_badge_counts,
-            commands::show_dock_menu,
-            commands::show_app_context_menu,
-            commands::set_dock_suppressed,
-            commands::get_dock_suppressed,
+            // App discovery, icons, launching
+            commands::app_discovery::get_app_icon,
+            commands::app_discovery::get_dock_apps,
+            commands::app_discovery::get_installed_apps,
+            commands::app_discovery::get_running_apps,
+            commands::app_discovery::get_all_discoverable_apps,
+            commands::app_discovery::launch_app,
+            commands::app_discovery::open_path,
+            commands::app_discovery::open_url,
+            commands::app_discovery::get_path_icon,
+            commands::app_discovery::get_app_badge_counts,
+            commands::app_discovery::show_dock_menu,
+            // Context menu
+            commands::context_menu::show_app_context_menu,
+            // Dock management
+            commands::dock::set_dock_suppressed,
+            commands::dock::get_dock_suppressed,
         ])
         .setup(|app| {
             // Set the macOS Dock icon programmatically. In dev mode the app

@@ -57,13 +57,23 @@ pub struct AppGroup {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct StoredData {
-    /// Space labels keyed by "displayId:spaceIndex" (e.g. "ABC-123:3").
+    /// [LEGACY] Space labels keyed by "displayId:spaceIndex" (e.g. "ABC-123:3").
+    /// Retained for backwards compatibility; new labels use `labels_by_space_id`.
     #[serde(default)]
     pub labels: HashMap<String, String>,
 
-    /// Collapsed state keyed by "displayId:spaceIndex".
+    /// Space labels keyed by spaceId (macOS ManagedSpaceID).
+    /// This survives space reordering in Mission Control.
+    #[serde(default)]
+    pub labels_by_space_id: HashMap<i64, String>,
+
+    /// [LEGACY] Collapsed state keyed by "displayId:spaceIndex".
     #[serde(default)]
     pub collapsed: HashMap<String, bool>,
+
+    /// Collapsed state keyed by spaceId (macOS ManagedSpaceID).
+    #[serde(default)]
+    pub collapsed_by_space_id: HashMap<i64, bool>,
 
     /// User settings.
     #[serde(default)]
@@ -308,7 +318,7 @@ pub fn save(data: &StoredData) -> Result<(), String> {
         .map_err(|e| format!("Failed to create directory {}: {}", dir.display(), e))?;
 
     let json = serde_json::to_string_pretty(data)
-        .map_err(|e| format!("Failed to serialise data: {}", e))?;
+        .map_err(|e| format!("Failed to serialize data: {}", e))?;
 
     std::fs::write(&path, json)
         .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
@@ -316,7 +326,7 @@ pub fn save(data: &StoredData) -> Result<(), String> {
     Ok(())
 }
 
-/// Set a label for a space. Saves immediately.
+/// [LEGACY] Set a label for a space by displayId:spaceIndex. Saves immediately.
 pub fn set_label(display_id: &str, space_index: usize, label: &str) -> Result<(), String> {
     let mut data = load();
     let key = space_key(display_id, space_index);
@@ -330,19 +340,88 @@ pub fn set_label(display_id: &str, space_index: usize, label: &str) -> Result<()
     save(&data)
 }
 
-/// Get the label for a space, or empty string if not set.
+/// Set a label for a space by spaceId. Saves immediately.
+/// This is the preferred method as spaceId survives space reordering.
+pub fn set_label_by_id(space_id: i64, label: &str) -> Result<(), String> {
+    log::info!(
+        "[storage] set_label_by_id called — space_id={}, label='{}'",
+        space_id,
+        label
+    );
+    let mut data = load();
+    log::info!(
+        "[storage] set_label_by_id — loaded data, labels_by_space_id has {} entries",
+        data.labels_by_space_id.len()
+    );
+
+    if label.is_empty() {
+        log::info!("[storage] set_label_by_id — removing label for space_id={}", space_id);
+        data.labels_by_space_id.remove(&space_id);
+    } else {
+        log::info!(
+            "[storage] set_label_by_id — inserting label '{}' for space_id={}",
+            label,
+            space_id
+        );
+        data.labels_by_space_id.insert(space_id, label.to_string());
+    }
+
+    log::info!(
+        "[storage] set_label_by_id — saving data, labels_by_space_id now has {} entries",
+        data.labels_by_space_id.len()
+    );
+    let result = save(&data);
+    match &result {
+        Ok(()) => log::info!("[storage] set_label_by_id — save succeeded"),
+        Err(e) => log::error!("[storage] set_label_by_id — save failed: {}", e),
+    }
+    result
+}
+
+/// [LEGACY] Get the label for a space by displayId:spaceIndex.
 pub fn get_label(display_id: &str, space_index: usize) -> String {
     let data = load();
     let key = space_key(display_id, space_index);
     data.labels.get(&key).cloned().unwrap_or_default()
 }
 
-/// Set the collapsed state for a space. Saves immediately.
+/// Get the label for a space by spaceId, falling back to legacy lookup.
+pub fn get_label_by_id(space_id: i64, display_id: &str, space_index: usize) -> String {
+    let data = load();
+    // First check the new spaceId-based storage.
+    if let Some(label) = data.labels_by_space_id.get(&space_id) {
+        return label.clone();
+    }
+    // Fall back to legacy displayId:spaceIndex lookup for migration.
+    let key = space_key(display_id, space_index);
+    data.labels.get(&key).cloned().unwrap_or_default()
+}
+
+/// [LEGACY] Set the collapsed state for a space by displayId:spaceIndex.
 pub fn set_collapsed(display_id: &str, space_index: usize, collapsed: bool) -> Result<(), String> {
     let mut data = load();
     let key = space_key(display_id, space_index);
     data.collapsed.insert(key, collapsed);
     save(&data)
+}
+
+/// Set the collapsed state for a space by spaceId. Saves immediately.
+pub fn set_collapsed_by_id(space_id: i64, collapsed: bool) -> Result<(), String> {
+    let mut data = load();
+    data.collapsed_by_space_id.insert(space_id, collapsed);
+    save(&data)
+}
+
+/// Get the collapsed state for a space by spaceId, falling back to legacy lookup.
+pub fn get_collapsed_by_id(space_id: i64, display_id: &str, space_index: usize) -> bool {
+    let data = load();
+    // First check the new spaceId-based storage.
+    if let Some(&collapsed) = data.collapsed_by_space_id.get(&space_id) {
+        return collapsed;
+    }
+    // Fall back to legacy displayId:spaceIndex lookup for migration.
+    let key = space_key(display_id, space_index);
+    data.collapsed.get(&key).copied().unwrap_or(false)
 }
 
 /// Update user settings. Saves immediately.

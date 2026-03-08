@@ -87,6 +87,8 @@ export function WindowItem({ window, viewMode, iconSrc, fontSize = 12, grouped =
         background: "rgb(39, 39, 42)",
         border: "1px solid var(--panel-border)",
         minWidth: "120px",
+        paddingLeft: "2px",
+        paddingRight: "2px",
       }}
     >
       <button

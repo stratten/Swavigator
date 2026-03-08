@@ -24,3 +24,6 @@ dist-ssr
 *.sw?
 logs.txt
 docs_logs/
+
+# Development docs, logs, and cloc outputs
+docs_logs_cloc/

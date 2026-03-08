@@ -16,8 +16,8 @@ interface SpaceCardProps {
   externalDisplayNumber?: number;
   /** Panel orientation for layout adjustments. */
   orientation?: "vertical" | "horizontal";
-  onSetCollapsed: (displayId: string, spaceIndex: number, collapsed: boolean) => void;
-  onSetLabel: (displayId: string, spaceIndex: number, label: string) => void;
+  onSetCollapsed: (spaceId: number, collapsed: boolean) => void;
+  onSetLabel: (spaceId: number, label: string) => void;
 }
 
 /** Tiny laptop silhouette (built-in display). */
@@ -62,7 +62,9 @@ export function SpaceCard({ space, activeSpaceId, viewMode, appIcons, spaceNameF
     }
   }, [space.label, editing]);
 
-  const displayLabel = space.label || `Space ${space.spaceIndex}`;
+  // Always show the space number for Mission Control reference.
+  // Format: "X · Label" or "X · Desktop" for consistency.
+  const displayLabel = `${space.spaceIndex} · ${space.label || "Desktop"}`;
 
   const handleNavigateToSpace = async () => {
     if (space.isActive) return;
@@ -82,16 +84,19 @@ export function SpaceCard({ space, activeSpaceId, viewMode, appIcons, spaceNameF
   };
 
   const handleToggleCollapse = () => {
-    onSetCollapsed(space.displayId, space.spaceIndex, !space.isCollapsed);
+    onSetCollapsed(space.spaceId, !space.isCollapsed);
   };
 
   const commitLabel = () => {
     setEditing(false);
     const trimmed = labelDraft.trim();
+    feLog("info", `[SpaceCard] commitLabel called — spaceId=${space.spaceId}, spaceIndex=${space.spaceIndex}, currentLabel='${space.label}', newLabel='${trimmed}'`);
     if (trimmed === space.label) {
+      feLog("info", `[SpaceCard] commitLabel — no change, skipping`);
       return;
     }
-    onSetLabel(space.displayId, space.spaceIndex, trimmed);
+    feLog("info", `[SpaceCard] commitLabel — calling onSetLabel(${space.spaceId}, '${trimmed}')`);
+    onSetLabel(space.spaceId, trimmed);
   };
 
   const isActive = space.spaceId === activeSpaceId;
@@ -416,6 +421,8 @@ export function SpaceCard({ space, activeSpaceId, viewMode, appIcons, spaceNameF
               background: "rgb(39, 39, 42)",
               border: "1px solid var(--panel-border)",
               minWidth: "140px",
+              paddingLeft: "2px",
+              paddingRight: "2px",
             }}
           >
             <button
