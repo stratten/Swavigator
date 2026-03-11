@@ -5,7 +5,10 @@ interface TitleBarProps {
   showSearch: boolean;
   allCollapsed: boolean;
   orientation: "vertical" | "horizontal";
+  totalTodoCount?: number;
+  enableTodos?: boolean;
   onOpenSettings: () => void;
+  onOpenAllTodos: () => void;
   onCollapse: () => void;
   onToggleSearch: () => void;
   onCycleViewMode: () => void;
@@ -28,7 +31,10 @@ export function TitleBar({
   showSearch,
   allCollapsed,
   orientation,
+  totalTodoCount = 0,
+  enableTodos = true,
   onOpenSettings,
+  onOpenAllTodos,
   onCollapse,
   onToggleSearch,
   onCycleViewMode,
@@ -160,6 +166,70 @@ export function TitleBar({
             <line x1="10" y1="10" x2="15" y2="15" />
           </svg>
         </button>
+
+        {/* All To-Dos (hidden when tasks feature is disabled) */}
+        {enableTodos && (
+          <button
+            onClick={onOpenAllTodos}
+            className="rounded cursor-pointer"
+            style={{
+              color: "var(--text-muted)",
+              background: "transparent",
+              border: "none",
+              fontSize: "14px",
+              lineHeight: 1,
+              padding: "2px",
+              position: "relative",
+            }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.color = "var(--text-primary)")
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.color = "var(--text-muted)")
+            }
+            title="All To-Dos"
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="2 8 5 11 9 5" />
+              <line x1="11" y1="4" x2="15" y2="4" />
+              <line x1="11" y1="8" x2="15" y2="8" />
+              <line x1="11" y1="12" x2="15" y2="12" />
+              <line x1="2" y1="4" x2="5" y2="4" />
+              <line x1="2" y1="12" x2="5" y2="12" />
+            </svg>
+            {totalTodoCount > 0 && (
+              <span
+                style={{
+                  position: "absolute",
+                  top: "-4px",
+                  right: "-6px",
+                  background: "var(--accent-blue)",
+                  color: "#fff",
+                  fontSize: "8px",
+                  fontWeight: 700,
+                  lineHeight: "12px",
+                  minWidth: "12px",
+                  height: "12px",
+                  borderRadius: "6px",
+                  padding: "0 2px",
+                  textAlign: "center",
+                  pointerEvents: "none",
+                }}
+              >
+                {totalTodoCount > 99 ? "99+" : totalTodoCount}
+              </span>
+            )}
+          </button>
+        )}
 
         {/* View mode toggle */}
         <button

@@ -53,6 +53,19 @@ pub struct AppGroup {
     pub collapsed: bool,
 }
 
+/// A single to-do item within a space's checklist.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TodoItem {
+    /// Unique identifier (UUID v4).
+    pub id: String,
+    /// To-do text.
+    pub text: String,
+    /// Whether this item has been completed.
+    #[serde(default)]
+    pub completed: bool,
+}
+
 /// On-disk format for persisted Swavigator data.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -86,6 +99,10 @@ pub struct StoredData {
     /// Whether the app tray is visible.
     #[serde(default)]
     pub app_tray_visible: bool,
+
+    /// Per-space to-do checklists keyed by spaceId.
+    #[serde(default)]
+    pub todos_by_space_id: HashMap<i64, Vec<TodoItem>>,
 }
 
 /// Persisted user preferences.
@@ -175,6 +192,26 @@ pub struct UserSettings {
     /// this is the percentage of width.
     #[serde(default = "default_tray_split_percent")]
     pub tray_split_percent: f64,
+
+    /// Whether dock mode (auto-show on hover) is enabled.
+    #[serde(default)]
+    pub dock_mode: bool,
+
+    /// Size in pixels of the trigger strip when dock mode is collapsed.
+    #[serde(default = "default_dock_trigger_size")]
+    pub dock_trigger_size: u32,
+
+    /// Opacity of the trigger strip (0.0–1.0). Nearly invisible by default.
+    #[serde(default = "default_dock_trigger_opacity")]
+    pub dock_trigger_opacity: f64,
+
+    /// Delay in ms before the panel hides after the cursor leaves.
+    #[serde(default = "default_dock_hide_delay")]
+    pub dock_hide_delay: u32,
+
+    /// Whether the per-space Tasks feature is enabled. Default true.
+    #[serde(default = "default_true")]
+    pub enable_todos: bool,
 }
 
 impl Default for UserSettings {
@@ -200,6 +237,11 @@ impl Default for UserSettings {
             expanded_horizontal_width: default_horizontal_width(),
             expanded_horizontal_height: default_horizontal_height(),
             tray_split_percent: default_tray_split_percent(),
+            dock_mode: false,
+            dock_trigger_size: default_dock_trigger_size(),
+            dock_trigger_opacity: default_dock_trigger_opacity(),
+            dock_hide_delay: default_dock_hide_delay(),
+            enable_todos: true,
         }
     }
 }
@@ -254,6 +296,18 @@ fn default_horizontal_height() -> u32 {
 
 fn default_tray_split_percent() -> f64 {
     30.0
+}
+
+fn default_dock_trigger_size() -> u32 {
+    8
+}
+
+fn default_dock_trigger_opacity() -> f64 {
+    0.02
+}
+
+fn default_dock_hide_delay() -> u32 {
+    800
 }
 
 /// Build a canonical key for a space: "displayId:spaceIndex".
@@ -581,5 +635,106 @@ pub fn get_app_tray_visible() -> bool {
 pub fn set_app_tray_visible(visible: bool) -> Result<(), String> {
     let mut data = load();
     data.app_tray_visible = visible;
+    save(&data)
+}
+
+// ---------------------------------------------------------------------------
+// Space to-do helpers
+// ---------------------------------------------------------------------------
+
+/// Get all to-do items for a specific space.
+pub fn get_todos_by_space_id(space_id: i64) -> Vec<TodoItem> {
+    load()
+        .todos_by_space_id
+        .get(&space_id)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// Get all to-dos across all spaces, keyed by spaceId.
+pub fn get_all_todos() -> HashMap<i64, Vec<TodoItem>> {
+    load().todos_by_space_id
+}
+
+/// Add a new to-do item to a space. Returns the created item.
+pub fn add_todo(space_id: i64, text: &str) -> Result<TodoItem, String> {
+    let mut data = load();
+    let item = TodoItem {
+        id: uuid::Uuid::new_v4().to_string(),
+        text: text.to_string(),
+        completed: false,
+    };
+    data.todos_by_space_id
+        .entry(space_id)
+        .or_default()
+        .push(item.clone());
+    save(&data)?;
+    Ok(item)
+}
+
+/// Toggle the completed state of a to-do item.
+pub fn toggle_todo(space_id: i64, todo_id: &str) -> Result<(), String> {
+    let mut data = load();
+    let todos = data
+        .todos_by_space_id
+        .get_mut(&space_id)
+        .ok_or_else(|| format!("No to-dos for space {}.", space_id))?;
+    let item = todos
+        .iter_mut()
+        .find(|t| t.id == todo_id)
+        .ok_or_else(|| format!("To-do '{}' not found.", todo_id))?;
+    item.completed = !item.completed;
+    save(&data)
+}
+
+/// Delete a to-do item from a space.
+pub fn delete_todo(space_id: i64, todo_id: &str) -> Result<(), String> {
+    let mut data = load();
+    let todos = data
+        .todos_by_space_id
+        .get_mut(&space_id)
+        .ok_or_else(|| format!("No to-dos for space {}.", space_id))?;
+    let before = todos.len();
+    todos.retain(|t| t.id != todo_id);
+    if todos.len() == before {
+        return Err(format!("To-do '{}' not found.", todo_id));
+    }
+    if todos.is_empty() {
+        data.todos_by_space_id.remove(&space_id);
+    }
+    save(&data)
+}
+
+/// Update the text of an existing to-do item.
+pub fn update_todo_text(space_id: i64, todo_id: &str, text: &str) -> Result<(), String> {
+    let mut data = load();
+    let todos = data
+        .todos_by_space_id
+        .get_mut(&space_id)
+        .ok_or_else(|| format!("No to-dos for space {}.", space_id))?;
+    let item = todos
+        .iter_mut()
+        .find(|t| t.id == todo_id)
+        .ok_or_else(|| format!("To-do '{}' not found.", todo_id))?;
+    item.text = text.to_string();
+    save(&data)
+}
+
+/// Move a to-do item from one space (or unassigned, id=0) to another.
+pub fn move_todo(from_space_id: i64, to_space_id: i64, todo_id: &str) -> Result<(), String> {
+    let mut data = load();
+    let from_todos = data
+        .todos_by_space_id
+        .get_mut(&from_space_id)
+        .ok_or_else(|| format!("No to-dos for space {}.", from_space_id))?;
+    let idx = from_todos
+        .iter()
+        .position(|t| t.id == todo_id)
+        .ok_or_else(|| format!("To-do '{}' not found in space {}.", todo_id, from_space_id))?;
+    let item = from_todos.remove(idx);
+    data.todos_by_space_id
+        .entry(to_space_id)
+        .or_default()
+        .push(item);
     save(&data)
 }

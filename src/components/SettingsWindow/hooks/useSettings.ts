@@ -20,6 +20,11 @@ export interface SettingsState {
   highlightRunningApps: boolean;
   orientation: "vertical" | "horizontal";
   showMinimized: boolean;
+  dockMode: boolean;
+  dockTriggerSize: number;
+  dockTriggerOpacity: number;
+  dockHideDelay: number;
+  enableTodos: boolean;
   loaded: boolean;
 }
 
@@ -36,6 +41,11 @@ export interface UseSettingsReturn {
   setHighlightRunningApps: (enabled: boolean) => void;
   setOrientation: (orientation: "vertical" | "horizontal") => void;
   setShowMinimized: (show: boolean) => void;
+  setDockMode: (enabled: boolean) => void;
+  setDockTriggerSize: (size: number) => void;
+  setDockTriggerOpacity: (opacity: number) => void;
+  setDockHideDelay: (delay: number) => void;
+  setEnableTodos: (enabled: boolean) => void;
   updateSetting: (overrides: Partial<UserSettings>) => void;
 }
 
@@ -56,6 +66,11 @@ export function useSettings(): UseSettingsReturn {
   const [highlightRunningApps, setHighlightRunningAppsState] = useState(true);
   const [orientation, setOrientationState] = useState<"vertical" | "horizontal">("vertical");
   const [showMinimized, setShowMinimizedState] = useState(true);
+  const [dockMode, setDockModeState] = useState(false);
+  const [dockTriggerSize, setDockTriggerSizeState] = useState(8);
+  const [dockTriggerOpacity, setDockTriggerOpacityState] = useState(0.02);
+  const [dockHideDelay, setDockHideDelayState] = useState(800);
+  const [enableTodos, setEnableTodosState] = useState(true);
   const [loaded, setLoaded] = useState(false);
 
   // Keep a ref to the full settings object for partial updates.
@@ -79,9 +94,14 @@ export function useSettings(): UseSettingsReturn {
         if (s.highlightRunningApps != null) setHighlightRunningAppsState(s.highlightRunningApps);
         if (s.orientation) setOrientationState(s.orientation as "vertical" | "horizontal");
         if (s.showMinimized != null) setShowMinimizedState(s.showMinimized);
+        if (s.dockMode != null) setDockModeState(s.dockMode);
+        if (s.dockTriggerSize != null) setDockTriggerSizeState(s.dockTriggerSize);
+        if (s.dockTriggerOpacity != null) setDockTriggerOpacityState(s.dockTriggerOpacity);
+        if (s.dockHideDelay != null) setDockHideDelayState(s.dockHideDelay);
+        if (s.enableTodos != null) setEnableTodosState(s.enableTodos);
         feLog(
           "info",
-          `[SettingsWindow] State applied — lowOpacityWhenIdle=${s.lowOpacityWhenIdle} | suppressDock=${s.suppressDock} | highlightRunningApps=${s.highlightRunningApps} | showMinimized=${s.showMinimized} | orientation=${s.orientation}`,
+          `[SettingsWindow] State applied — lowOpacityWhenIdle=${s.lowOpacityWhenIdle} | suppressDock=${s.suppressDock} | highlightRunningApps=${s.highlightRunningApps} | showMinimized=${s.showMinimized} | orientation=${s.orientation} | dockMode=${s.dockMode}`,
         );
       })
       .catch((err) => {
@@ -91,10 +111,20 @@ export function useSettings(): UseSettingsReturn {
   }, []);
 
   // Listen for settings-changed events from the main window.
+  // Must update BOTH React state AND settingsRef so that subsequent
+  // updateSetting() calls don't emit stale values back to the main panel.
   useEffect(() => {
     const unlisten = listen<Partial<UserSettings>>("settings-changed", (event) => {
       const s = event.payload;
+      if (settingsRef.current) {
+        settingsRef.current = { ...settingsRef.current, ...s };
+      }
       if (s.orientation) setOrientationState(s.orientation as "vertical" | "horizontal");
+      if (s.dockMode !== undefined) setDockModeState(s.dockMode);
+      if (s.dockTriggerSize != null) setDockTriggerSizeState(s.dockTriggerSize);
+      if (s.dockTriggerOpacity != null) setDockTriggerOpacityState(s.dockTriggerOpacity);
+      if (s.dockHideDelay != null) setDockHideDelayState(s.dockHideDelay);
+      if (s.enableTodos !== undefined) setEnableTodosState(s.enableTodos);
     });
     return () => {
       unlisten.then((fn) => fn());
@@ -131,6 +161,11 @@ export function useSettings(): UseSettingsReturn {
         orientation: base?.orientation ?? orientation,
         traySplitPercent: base?.traySplitPercent ?? 30,
         showMinimized: base?.showMinimized ?? showMinimized,
+        dockMode: base?.dockMode ?? dockMode,
+        dockTriggerSize: base?.dockTriggerSize ?? dockTriggerSize,
+        dockTriggerOpacity: base?.dockTriggerOpacity ?? dockTriggerOpacity,
+        dockHideDelay: base?.dockHideDelay ?? dockHideDelay,
+        enableTodos: base?.enableTodos ?? enableTodos,
         ...overrides,
       };
       feLog(
@@ -143,7 +178,7 @@ export function useSettings(): UseSettingsReturn {
       });
       emit("settings-changed", merged);
     },
-    [viewMode, spaceNameFontSize, windowFontSize, fontFamily, toggleHotkey, lowOpacityWhenIdle, idleOpacity, highlightRunningApps, orientation, showMinimized],
+    [viewMode, spaceNameFontSize, windowFontSize, fontFamily, toggleHotkey, lowOpacityWhenIdle, idleOpacity, highlightRunningApps, orientation, showMinimized, dockMode, dockTriggerSize, dockTriggerOpacity, dockHideDelay, enableTodos],
   );
 
   // Wrapped setters that also persist.
@@ -238,6 +273,46 @@ export function useSettings(): UseSettingsReturn {
     [updateSetting],
   );
 
+  const setDockMode = useCallback(
+    (enabled: boolean) => {
+      setDockModeState(enabled);
+      updateSetting({ dockMode: enabled });
+    },
+    [updateSetting],
+  );
+
+  const setDockTriggerSize = useCallback(
+    (size: number) => {
+      setDockTriggerSizeState(size);
+      updateSetting({ dockTriggerSize: size });
+    },
+    [updateSetting],
+  );
+
+  const setDockTriggerOpacity = useCallback(
+    (opacity: number) => {
+      setDockTriggerOpacityState(opacity);
+      updateSetting({ dockTriggerOpacity: opacity });
+    },
+    [updateSetting],
+  );
+
+  const setDockHideDelay = useCallback(
+    (delay: number) => {
+      setDockHideDelayState(delay);
+      updateSetting({ dockHideDelay: delay });
+    },
+    [updateSetting],
+  );
+
+  const setEnableTodos = useCallback(
+    (enabled: boolean) => {
+      setEnableTodosState(enabled);
+      updateSetting({ enableTodos: enabled });
+    },
+    [updateSetting],
+  );
+
   return {
     state: {
       viewMode,
@@ -251,6 +326,11 @@ export function useSettings(): UseSettingsReturn {
       highlightRunningApps,
       orientation,
       showMinimized,
+      dockMode,
+      dockTriggerSize,
+      dockTriggerOpacity,
+      dockHideDelay,
+      enableTodos,
       loaded,
     },
     setViewMode,
@@ -264,6 +344,11 @@ export function useSettings(): UseSettingsReturn {
     setHighlightRunningApps,
     setOrientation,
     setShowMinimized,
+    setDockMode,
+    setDockTriggerSize,
+    setDockTriggerOpacity,
+    setDockHideDelay,
+    setEnableTodos,
     updateSetting,
   };
 }

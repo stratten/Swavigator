@@ -116,6 +116,7 @@ export function AppTray({
         transparent: true,
         center: true,
         alwaysOnTop: true,
+        visibleOnAllWorkspaces: true,
       });
 
       pickerWindow.once("tauri://error", (e) => {
@@ -251,117 +252,130 @@ export function AppTray({
       {/* Tray content */}
       {trayVisible && (
         <div
-          className={isHorizontal ? "flex flex-row overflow-x-auto px-1 pb-1 gap-1" : "overflow-y-auto px-1 pb-1"}
-          style={isHorizontal ? { flex: 1, minHeight: 0 } : undefined}
+          className={isHorizontal ? "flex flex-row flex-1 overflow-hidden" : "flex flex-col flex-1 overflow-hidden"}
+          style={{ minHeight: 0 }}
         >
-          {/* Group list */}
-          {groups.map((group, idx) => (
-            <div
-              key={group.id}
-              className={isHorizontal ? "flex-shrink-0" : ""}
-              onDragOver={(e) => handleGroupDragOver(e, group.id)}
-              onDragEnter={(e) => handleGroupDragEnter(e, group.id)}
-              onDragLeave={handleGroupDragLeave}
-              onDrop={(e) => handleGroupDrop(e, group.id)}
-              onDragEnd={handleGroupDragEnd}
-              style={{
-                opacity: dragGroupId === group.id ? 0.4 : 1,
-                ...(isHorizontal
-                  ? {
-                      height: "100%",
-                      borderRight:
-                        idx < groups.length - 1
-                          ? "1px solid var(--panel-border)"
-                          : "none",
-                      borderLeft:
-                        dropTargetId === group.id && dragGroupId !== group.id
-                          ? "2px solid var(--accent-blue)"
-                          : "2px solid transparent",
-                      paddingRight: "4px",
-                    }
-                  : {
-                      borderTop:
-                        dropTargetId === group.id && dragGroupId !== group.id
-                          ? "2px solid var(--accent-blue)"
-                          : "2px solid transparent",
-                    }),
-                transition: "opacity 0.15s ease",
-              }}
-            >
-              <AppGroupCard
-                group={group}
-                appIcons={appIcons}
-                badges={badges}
-                onToggleCollapsed={onToggleGroupCollapsed}
-                onDeleteGroup={onDeleteGroup}
-                onUpdateGroup={onUpdateGroup}
-                onOpenPicker={handleOpenPicker}
-                onGroupDragStart={(e) => handleGroupDragStart(e, group.id)}
-                runningBundleIds={runningBundleIds}
-                orientation={orientation}
-              />
-            </div>
-          ))}
-
-          {/* Create group inline form */}
-          {creatingGroup ? (
-            <div className="flex items-center gap-1 px-1.5 py-1">
-              <input
-                autoFocus
-                value={newGroupName}
-                onChange={(e) => setNewGroupName(e.target.value)}
-                onBlur={() => {
-                  if (!newGroupName.trim()) setCreatingGroup(false);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleCreateGroup();
-                  if (e.key === "Escape") {
-                    setNewGroupName("");
-                    setCreatingGroup(false);
-                  }
-                }}
-                placeholder="Group name…"
-                className="flex-1 px-1.5 py-0.5 rounded outline-none text-xs"
+          {/* Scrollable group list */}
+          <div
+            className={isHorizontal ? "flex flex-row overflow-x-auto px-1 pb-1 gap-1" : "overflow-y-auto px-1 pb-1"}
+            style={isHorizontal ? { flex: 1, minWidth: 0 } : { flex: 1, minHeight: 0 }}
+          >
+            {groups.map((group, idx) => (
+              <div
+                key={group.id}
+                className={isHorizontal ? "flex-shrink-0" : ""}
+                onDragOver={(e) => handleGroupDragOver(e, group.id)}
+                onDragEnter={(e) => handleGroupDragEnter(e, group.id)}
+                onDragLeave={handleGroupDragLeave}
+                onDrop={(e) => handleGroupDrop(e, group.id)}
+                onDragEnd={handleGroupDragEnd}
                 style={{
-                  color: "var(--text-primary)",
-                  background: "rgba(63, 63, 70, 0.6)",
-                  border: "1px solid var(--accent-blue)",
-                  minWidth: 0,
-                }}
-              />
-              <button
-                onClick={handleCreateGroup}
-                className="text-xs cursor-pointer rounded px-1.5 py-0.5"
-                style={{
-                  color: "var(--accent-blue)",
-                  background: "transparent",
-                  border: "1px solid var(--accent-blue)",
-                  fontSize: "10px",
+                  opacity: dragGroupId === group.id ? 0.4 : 1,
+                  ...(isHorizontal
+                    ? {
+                        height: "100%",
+                        borderRight:
+                          idx < groups.length - 1
+                            ? "1px solid var(--panel-border)"
+                            : "none",
+                        borderLeft:
+                          dropTargetId === group.id && dragGroupId !== group.id
+                            ? "2px solid var(--accent-blue)"
+                            : "2px solid transparent",
+                        paddingRight: "4px",
+                      }
+                    : {
+                        borderTop:
+                          dropTargetId === group.id && dragGroupId !== group.id
+                            ? "2px solid var(--accent-blue)"
+                            : "2px solid transparent",
+                      }),
+                  transition: "opacity 0.15s ease",
                 }}
               >
-                Add
+                <AppGroupCard
+                  group={group}
+                  appIcons={appIcons}
+                  badges={badges}
+                  onToggleCollapsed={onToggleGroupCollapsed}
+                  onDeleteGroup={onDeleteGroup}
+                  onUpdateGroup={onUpdateGroup}
+                  onOpenPicker={handleOpenPicker}
+                  onGroupDragStart={(e) => handleGroupDragStart(e, group.id)}
+                  runningBundleIds={runningBundleIds}
+                  orientation={orientation}
+                />
+              </div>
+            ))}
+          </div>
+
+          {/* Create group — pinned to right (horizontal) or bottom (vertical) */}
+          <div
+            className="flex-shrink-0"
+            style={isHorizontal
+              ? { borderLeft: "1px solid var(--panel-border)", display: "flex", alignItems: "start", paddingTop: "2px" }
+              : {}
+            }
+          >
+            {creatingGroup ? (
+              <div className="flex items-center gap-1 px-1.5 py-1">
+                <input
+                  autoFocus
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                  onBlur={() => {
+                    if (!newGroupName.trim()) setCreatingGroup(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleCreateGroup();
+                    if (e.key === "Escape") {
+                      setNewGroupName("");
+                      setCreatingGroup(false);
+                    }
+                  }}
+                  placeholder="Group name…"
+                  className="flex-1 px-1.5 py-0.5 rounded outline-none text-xs"
+                  style={{
+                    color: "var(--text-primary)",
+                    background: "rgba(63, 63, 70, 0.6)",
+                    border: "1px solid var(--accent-blue)",
+                    minWidth: 0,
+                  }}
+                />
+                <button
+                  onClick={handleCreateGroup}
+                  className="text-xs cursor-pointer rounded px-1.5 py-0.5"
+                  style={{
+                    color: "var(--accent-blue)",
+                    background: "transparent",
+                    border: "1px solid var(--accent-blue)",
+                    fontSize: "10px",
+                  }}
+                >
+                  Add
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setCreatingGroup(true)}
+                className="text-left px-2 py-1 text-xs cursor-pointer rounded whitespace-nowrap"
+                style={{
+                  color: "var(--text-muted)",
+                  background: "transparent",
+                  border: "none",
+                  fontSize: "11px",
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.color = "var(--accent-blue)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.color = "var(--text-muted)")
+                }
+              >
+                + New Group
               </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setCreatingGroup(true)}
-              className="w-full text-left px-2 py-1 text-xs cursor-pointer rounded"
-              style={{
-                color: "var(--text-muted)",
-                background: "transparent",
-                border: "none",
-                fontSize: "11px",
-              }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.color = "var(--accent-blue)")
-              }
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.color = "var(--text-muted)")
-              }
-            >
-              + New Group
-            </button>
-          )}
+            )}
+          </div>
         </div>
       )}
     </>

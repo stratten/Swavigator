@@ -316,6 +316,57 @@ pub fn get_app_tray_visible() -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// Space to-do commands
+// ---------------------------------------------------------------------------
+
+/// Get all to-do items for a specific space.
+#[tauri::command]
+pub fn get_space_todos(space_id: i64) -> Vec<storage::TodoItem> {
+    storage::get_todos_by_space_id(space_id)
+}
+
+/// Get all to-dos across all spaces, keyed by spaceId.
+#[tauri::command]
+pub fn get_all_space_todos() -> std::collections::HashMap<i64, Vec<storage::TodoItem>> {
+    storage::get_all_todos()
+}
+
+/// Add a new to-do item to a space. Returns the created item.
+#[tauri::command]
+pub fn add_space_todo(space_id: i64, text: String) -> Result<storage::TodoItem, String> {
+    log::info!("[cmd] add_space_todo: space_id={}, text='{}'", space_id, text);
+    storage::add_todo(space_id, &text)
+}
+
+/// Toggle the completed state of a to-do item.
+#[tauri::command]
+pub fn toggle_space_todo(space_id: i64, todo_id: String) -> Result<(), String> {
+    log::info!("[cmd] toggle_space_todo: space_id={}, todo_id='{}'", space_id, todo_id);
+    storage::toggle_todo(space_id, &todo_id)
+}
+
+/// Delete a to-do item from a space.
+#[tauri::command]
+pub fn delete_space_todo(space_id: i64, todo_id: String) -> Result<(), String> {
+    log::info!("[cmd] delete_space_todo: space_id={}, todo_id='{}'", space_id, todo_id);
+    storage::delete_todo(space_id, &todo_id)
+}
+
+/// Update the text of an existing to-do item.
+#[tauri::command]
+pub fn update_space_todo_text(space_id: i64, todo_id: String, text: String) -> Result<(), String> {
+    log::info!("[cmd] update_space_todo_text: space_id={}, todo_id='{}', text='{}'", space_id, todo_id, text);
+    storage::update_todo_text(space_id, &todo_id, &text)
+}
+
+/// Move a to-do item between spaces (use space_id 0 for unassigned).
+#[tauri::command]
+pub fn move_space_todo(from_space_id: i64, to_space_id: i64, todo_id: String) -> Result<(), String> {
+    log::info!("[cmd] move_space_todo: from={}, to={}, todo_id='{}'", from_space_id, to_space_id, todo_id);
+    storage::move_todo(from_space_id, to_space_id, &todo_id)
+}
+
+// ---------------------------------------------------------------------------
 // Background polling loop
 // ---------------------------------------------------------------------------
 

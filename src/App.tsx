@@ -3,6 +3,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { FloatingPanel } from "./components/FloatingPanel";
 import { AppPickerWindow } from "./components/AppPickerWindow";
 import { SettingsWindow } from "./components/SettingsWindow";
+import { TodoWindow } from "./components/TodoWindow";
 
 function App() {
   const [windowLabel, setWindowLabel] = useState<string | null>(null);
@@ -20,6 +21,10 @@ function App() {
 
   if (windowLabel === "settings") {
     return <SettingsWindow />;
+  }
+
+  if (windowLabel.startsWith("space-todo-") || windowLabel === "todos-overview") {
+    return <TodoWindow />;
   }
 
   return <FloatingPanel />;

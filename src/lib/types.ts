@@ -52,6 +52,20 @@ export interface SpaceStatePayload {
 export type ViewMode = "compact" | "list" | "hybrid" | "count";
 
 // ---------------------------------------------------------------------------
+// Space To-Dos
+// ---------------------------------------------------------------------------
+
+/** A single to-do item within a space's checklist. */
+export interface TodoItem {
+  /** Unique identifier (UUID). */
+  id: string;
+  /** To-do text. */
+  text: string;
+  /** Whether this item has been completed. */
+  completed: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // App Groups / Launcher
 // ---------------------------------------------------------------------------
 
@@ -155,4 +169,14 @@ export interface UserSettings {
   traySplitPercent?: number;
   /** Whether to show the Minimized windows section. Default true. */
   showMinimized?: boolean;
+  /** Whether dock mode (auto-show on hover) is enabled. */
+  dockMode?: boolean;
+  /** Size in pixels of the trigger strip when dock mode is collapsed. */
+  dockTriggerSize?: number;
+  /** Opacity of the trigger strip (0–1). Nearly invisible by default. */
+  dockTriggerOpacity?: number;
+  /** Delay in ms before the panel hides after the cursor leaves. */
+  dockHideDelay?: number;
+  /** Whether the per-space Tasks feature is enabled. Default true. */
+  enableTodos?: boolean;
 }

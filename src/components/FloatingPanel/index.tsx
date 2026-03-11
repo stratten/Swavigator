@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useSpaceState } from "../../hooks/useSpaceState";
 import { useHotkeys } from "../../hooks/useHotkeys";
 import { useAppIcons } from "../../hooks/useAppIcons";
 import { useAppGroups } from "../../hooks/useAppGroups";
-import type { ViewMode } from "../../lib/types";
+import type { ViewMode, TodoItem } from "../../lib/types";
 
 // Local hooks
 import { useSettingsPersistence } from "./hooks/useSettingsPersistence";
@@ -14,6 +15,7 @@ import { useWindowGeometry } from "./hooks/useWindowGeometry";
 import { useDividerDrag } from "./hooks/useDividerDrag";
 import { useIdleOpacity } from "./hooks/useIdleOpacity";
 import { useSearchFilter } from "./hooks/useSearchFilter";
+import { useDockMode } from "./hooks/useDockMode";
 
 // Local components
 import { CompactView } from "./components/CompactView";
@@ -128,19 +130,36 @@ export function FloatingPanel() {
     orientation,
     traySplitPercent,
     showMinimized,
+    dockMode,
+    dockTriggerSize,
+    dockTriggerOpacity,
+    dockHideDelay,
+    enableTodos,
   } = settings;
 
   // Filter minimized windows based on setting.
   const displayedMinimizedWindows = showMinimized ? minimizedWindows : [];
 
   // ─── Window Geometry (Resize/Move) ──────────────────────────────────────
-  const { handleExpand, handleCollapse } = useWindowGeometry(
+  const { handleExpand, handleCollapse, ignoringResizeRef } = useWindowGeometry(
     expanded,
     orientation,
     expandedSizeRef,
     horizontalSizeRef,
     ignoringMoveRef,
     persistSettings,
+  );
+
+  // ─── Dock Mode (Auto-Show on Hover) ────────────────────────────────────
+  const { isDockExpanded, dockModeActive } = useDockMode(
+    dockMode,
+    dockTriggerSize,
+    dockHideDelay,
+    orientation,
+    expandedSizeRef,
+    horizontalSizeRef,
+    ignoringResizeRef,
+    ignoringMoveRef,
   );
 
   // ─── Divider Drag ───────────────────────────────────────────────────────
@@ -193,7 +212,67 @@ export function FloatingPanel() {
     return { totalDisplays: seen.size, externalDisplayNumbers: numMap };
   }, [spaces]);
 
+  // ─── Space To-Do Counts ─────────────────────────────────────────────────
+  const [todoCounts, setTodoCounts] = useState<Record<number, number>>({});
+
+  const totalTodoCount = useMemo(
+    () => Object.values(todoCounts).reduce((sum, c) => sum + c, 0),
+    [todoCounts],
+  );
+
+  const loadTodoCounts = useCallback(async () => {
+    try {
+      const allTodos: Record<string, TodoItem[]> = await invoke("get_all_space_todos");
+      const counts: Record<number, number> = {};
+      for (const [id, items] of Object.entries(allTodos)) {
+        const incomplete = items.filter((t) => !t.completed).length;
+        if (incomplete > 0) counts[Number(id)] = incomplete;
+      }
+      setTodoCounts(counts);
+    } catch {
+      // Silently ignore — non-critical
+    }
+  }, []);
+
+  useEffect(() => {
+    loadTodoCounts();
+  }, [loadTodoCounts]);
+
+  useEffect(() => {
+    const unlisten = listen("todos-changed", () => {
+      loadTodoCounts();
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [loadTodoCounts]);
+
   // ─── Handlers ───────────────────────────────────────────────────────────
+  const handleOpenAllTodos = useCallback(async () => {
+    const existing = await WebviewWindow.getByLabel("todos-overview");
+    if (existing) {
+      await existing.setFocus();
+      return;
+    }
+    const todosWindow = new WebviewWindow("todos-overview", {
+      url: "/",
+      title: "All To-Dos",
+      width: 380,
+      height: 500,
+      minWidth: 280,
+      minHeight: 300,
+      resizable: true,
+      decorations: false,
+      transparent: true,
+      center: true,
+      alwaysOnTop: true,
+      visibleOnAllWorkspaces: true,
+    });
+    todosWindow.once("tauri://error", (e) => {
+      feLog("error", `[FloatingPanel] Failed to create todos-overview window: ${e}`);
+    });
+  }, []);
+
   const handleOpenSettings = useCallback(async () => {
     const existing = await WebviewWindow.getByLabel("settings");
     if (existing) {
@@ -204,7 +283,7 @@ export function FloatingPanel() {
       url: "/",
       title: "Swavigator Settings",
       width: 380,
-      height: 480,
+      height: 620,
       minWidth: 300,
       minHeight: 300,
       resizable: true,
@@ -212,6 +291,7 @@ export function FloatingPanel() {
       transparent: true,
       center: true,
       alwaysOnTop: true,
+      visibleOnAllWorkspaces: true,
     });
     settingsWindow.once("tauri://error", (e) => {
       feLog("error", `[FloatingPanel] Failed to create settings window: ${e}`);
@@ -254,8 +334,23 @@ export function FloatingPanel() {
     };
   }, [flushCollapsedState]);
 
+  // ─── Dock Mode: Trigger Strip ───────────────────────────────────────────
+  if (dockModeActive && !isDockExpanded) {
+    return (
+      <div
+        className="h-full w-full"
+        style={{
+          opacity: dockTriggerOpacity,
+          background: "var(--panel-bg)",
+          borderRadius: "4px",
+          transition: "opacity 0.15s ease",
+        }}
+      />
+    );
+  }
+
   // ─── Compact View ───────────────────────────────────────────────────────
-  if (!expanded) {
+  if (!expanded && !dockModeActive) {
     return (
       <CompactView
         fontFamily={fontFamily}
@@ -283,7 +378,10 @@ export function FloatingPanel() {
         showSearch={showSearch}
         allCollapsed={allCollapsed}
         orientation={orientation}
+        totalTodoCount={enableTodos ? totalTodoCount : 0}
+        enableTodos={enableTodos}
         onOpenSettings={handleOpenSettings}
+        onOpenAllTodos={handleOpenAllTodos}
         onCollapse={doCollapse}
         onToggleSearch={handleToggleSearch}
         onCycleViewMode={cycleViewMode}
@@ -321,6 +419,8 @@ export function FloatingPanel() {
           onStartDragging={startDragging}
           onSetSpaceCollapsed={setSpaceCollapsed}
           onSetSpaceLabel={setSpaceLabel}
+          todoCounts={todoCounts}
+          enableTodos={enableTodos}
           groups={groups}
           trayVisible={trayVisible}
           groupAppIcons={groupAppIcons}
@@ -356,6 +456,8 @@ export function FloatingPanel() {
           onStartDragging={startDragging}
           onSetSpaceCollapsed={setSpaceCollapsed}
           onSetSpaceLabel={setSpaceLabel}
+          todoCounts={todoCounts}
+          enableTodos={enableTodos}
           groups={groups}
           trayVisible={trayVisible}
           groupAppIcons={groupAppIcons}

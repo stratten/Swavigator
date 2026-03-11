@@ -52,6 +52,14 @@ pub fn run() {
             commands::reorder_app_groups,
             commands::set_app_tray_visible,
             commands::get_app_tray_visible,
+            // Space to-dos
+            commands::get_space_todos,
+            commands::get_all_space_todos,
+            commands::add_space_todo,
+            commands::toggle_space_todo,
+            commands::delete_space_todo,
+            commands::update_space_todo_text,
+            commands::move_space_todo,
             // App discovery, icons, launching
             commands::app_discovery::get_app_icon,
             commands::app_discovery::get_dock_apps,
@@ -69,6 +77,7 @@ pub fn run() {
             // Dock management
             commands::dock::set_dock_suppressed,
             commands::dock::get_dock_suppressed,
+            commands::dock::get_menu_bar_height,
         ])
         .setup(|app| {
             // Set the macOS Dock icon programmatically. In dev mode the app

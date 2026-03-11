@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for all app windows",
-  "windows": ["main", "app-picker-*", "settings"],
+  "windows": ["main", "app-picker-*", "settings", "space-todo-*", "todos-overview"],
   "permissions": [
     "core:default",
     "core:window:default",

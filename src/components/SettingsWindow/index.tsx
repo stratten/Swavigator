@@ -24,6 +24,11 @@ export function SettingsWindow() {
     setHighlightRunningApps,
     setOrientation,
     setShowMinimized,
+    setDockMode,
+    setDockTriggerSize,
+    setDockTriggerOpacity,
+    setDockHideDelay,
+    setEnableTodos,
   } = useSettings();
 
   const handleClose = useCallback(() => {
@@ -187,6 +192,10 @@ export function SettingsWindow() {
         {/* ── Behavior ───────────────────────────────── */}
         <SectionHeader>Behavior</SectionHeader>
 
+        <SettingRow label="Enable Tasks">
+          <ToggleSwitch checked={state.enableTodos} onChange={setEnableTodos} />
+        </SettingRow>
+
         <SettingRow label="Show Minimized Windows">
           <ToggleSwitch checked={state.showMinimized} onChange={setShowMinimized} />
         </SettingRow>
@@ -224,6 +233,80 @@ export function SettingsWindow() {
               </span>
             </div>
           </SettingRow>
+        )}
+
+        {/* ── Dock Mode ──────────────────────────────── */}
+        <SectionHeader>Dock Mode</SectionHeader>
+
+        <SettingRow label="Auto-Hide Panel">
+          <ToggleSwitch checked={state.dockMode} onChange={setDockMode} />
+        </SettingRow>
+
+        {state.dockMode && (
+          <>
+            <SettingRow label="Trigger Strip Size">
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={2}
+                  max={20}
+                  step={1}
+                  value={state.dockTriggerSize}
+                  onChange={(e) => setDockTriggerSize(parseInt(e.target.value, 10))}
+                  className="cursor-pointer"
+                  style={{ width: "80px", accentColor: "var(--accent-blue)" }}
+                />
+                <span
+                  className="text-xs"
+                  style={{ color: "var(--text-muted)", minWidth: "30px" }}
+                >
+                  {state.dockTriggerSize}px
+                </span>
+              </div>
+            </SettingRow>
+
+            <SettingRow label="Strip Opacity">
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={0.01}
+                  max={0.1}
+                  step={0.01}
+                  value={state.dockTriggerOpacity}
+                  onChange={(e) => setDockTriggerOpacity(parseFloat(e.target.value))}
+                  className="cursor-pointer"
+                  style={{ width: "80px", accentColor: "var(--accent-blue)" }}
+                />
+                <span
+                  className="text-xs"
+                  style={{ color: "var(--text-muted)", minWidth: "30px" }}
+                >
+                  {Math.round(state.dockTriggerOpacity * 100)}%
+                </span>
+              </div>
+            </SettingRow>
+
+            <SettingRow label="Hide Delay">
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={200}
+                  max={2000}
+                  step={100}
+                  value={state.dockHideDelay}
+                  onChange={(e) => setDockHideDelay(parseInt(e.target.value, 10))}
+                  className="cursor-pointer"
+                  style={{ width: "80px", accentColor: "var(--accent-blue)" }}
+                />
+                <span
+                  className="text-xs"
+                  style={{ color: "var(--text-muted)", minWidth: "30px" }}
+                >
+                  {state.dockHideDelay}ms
+                </span>
+              </div>
+            </SettingRow>
+          </>
         )}
 
         {/* ── Shortcuts ──────────────────────────────── */}

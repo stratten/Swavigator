@@ -82,3 +82,77 @@ html, body {
   background: rgb(39, 39, 42);
   color: var(--text-primary);
 }
+
+/* ── Tiptap rich text editor ────────────────────────────────── */
+.tiptap-content {
+  word-break: break-word;
+}
+
+.tiptap-content p {
+  margin: 0 0 0.25em;
+}
+
+.tiptap-content p:last-child {
+  margin-bottom: 0;
+}
+
+.tiptap-content ul,
+.tiptap-content ol {
+  padding-left: 1.4em;
+  margin: 0.2em 0;
+}
+
+.tiptap-content ul {
+  list-style-type: disc;
+}
+
+.tiptap-content ol {
+  list-style-type: decimal;
+}
+
+.tiptap-content li {
+  margin: 0;
+}
+
+.tiptap-content li p {
+  margin: 0;
+}
+
+.tiptap-content strong {
+  font-weight: 600;
+}
+
+/* Rendered rich text in to-do items */
+.todo-display p {
+  margin: 0 0 0.15em;
+}
+
+.todo-display p:last-child {
+  margin-bottom: 0;
+}
+
+.todo-display ul,
+.todo-display ol {
+  padding-left: 1.4em;
+  margin: 0.1em 0;
+}
+
+.todo-display ul {
+  list-style-type: disc;
+}
+
+.todo-display ol {
+  list-style-type: decimal;
+}
+
+.todo-display li {
+  margin: 0;
+}
+
+.todo-display li p {
+  margin: 0;
+}
+
+.todo-display strong {
+  font-weight: 600;
+}

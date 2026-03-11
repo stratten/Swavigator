@@ -23,6 +23,10 @@ interface VerticalLayoutProps {
   onStartDragging: (e: React.MouseEvent) => void;
   onSetSpaceCollapsed: (spaceId: number, collapsed: boolean) => void;
   onSetSpaceLabel: (spaceId: number, label: string) => void;
+  /** Incomplete to-do counts per spaceId. */
+  todoCounts: Record<number, number>;
+  /** Whether the tasks feature is enabled. */
+  enableTodos?: boolean;
   // App tray props
   groups: AppGroup[];
   trayVisible: boolean;
@@ -62,6 +66,8 @@ export function VerticalLayout({
   onStartDragging,
   onSetSpaceCollapsed,
   onSetSpaceLabel,
+  todoCounts,
+  enableTodos = true,
   groups,
   trayVisible,
   groupAppIcons,
@@ -114,6 +120,8 @@ export function VerticalLayout({
                 windowFontSize={windowFontSize}
                 totalDisplays={totalDisplays}
                 externalDisplayNumber={externalDisplayNumbers[space.displayId]}
+                todoCount={todoCounts[space.spaceId] ?? 0}
+                enableTodos={enableTodos}
                 onSetCollapsed={onSetSpaceCollapsed}
                 onSetLabel={onSetSpaceLabel}
               />

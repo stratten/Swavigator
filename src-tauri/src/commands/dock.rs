@@ -89,6 +89,33 @@ fn read_dock_autohide() -> bool {
     }
 }
 
+/// Returns the macOS menu bar height in logical points so the frontend can
+/// avoid positioning windows behind it.
+#[tauri::command]
+pub fn get_menu_bar_height() -> f64 {
+    #[cfg(target_os = "macos")]
+    {
+        #[allow(deprecated, unexpected_cfgs)]
+        unsafe {
+            let screen: *mut objc::runtime::Object =
+                objc::msg_send![objc::class!(NSScreen), mainScreen];
+            if screen.is_null() {
+                return 25.0;
+            }
+            let frame: cocoa::foundation::NSRect = objc::msg_send![screen, frame];
+            let visible: cocoa::foundation::NSRect = objc::msg_send![screen, visibleFrame];
+            // Cocoa uses bottom-left origin: menu bar height is the gap at the top.
+            let h = frame.size.height - (visible.origin.y + visible.size.height);
+            if h > 0.0 { h } else { 25.0 }
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        0.0
+    }
+}
+
 /// Check whether the Dock is currently suppressed (autohide-delay ≥ 10 000).
 #[tauri::command]
 pub fn get_dock_suppressed() -> Result<bool, String> {

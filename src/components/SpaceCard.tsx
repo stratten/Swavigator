@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { SpaceInfo, ViewMode } from "../lib/types";
 import { WindowItem } from "./WindowItem";
 
@@ -16,6 +17,10 @@ interface SpaceCardProps {
   externalDisplayNumber?: number;
   /** Panel orientation for layout adjustments. */
   orientation?: "vertical" | "horizontal";
+  /** Number of incomplete to-do items for this space. */
+  todoCount?: number;
+  /** Whether the tasks feature is enabled. */
+  enableTodos?: boolean;
   onSetCollapsed: (spaceId: number, collapsed: boolean) => void;
   onSetLabel: (spaceId: number, label: string) => void;
 }
@@ -41,7 +46,7 @@ function feLog(level: string, message: string) {
   invoke("log_from_frontend", { level, message }).catch(() => {});
 }
 
-export function SpaceCard({ space, activeSpaceId, viewMode, appIcons, spaceNameFontSize, windowFontSize, totalDisplays, externalDisplayNumber, orientation = "vertical", onSetCollapsed, onSetLabel }: SpaceCardProps) {
+export function SpaceCard({ space, activeSpaceId, viewMode, appIcons, spaceNameFontSize, windowFontSize, totalDisplays, externalDisplayNumber, orientation = "vertical", todoCount = 0, enableTodos = true, onSetCollapsed, onSetLabel }: SpaceCardProps) {
   const [editing, setEditing] = useState(false);
   const [labelDraft, setLabelDraft] = useState(space.label);
   const [showContextMenu, setShowContextMenu] = useState(false);
@@ -98,6 +103,29 @@ export function SpaceCard({ space, activeSpaceId, viewMode, appIcons, spaceNameF
     feLog("info", `[SpaceCard] commitLabel — calling onSetLabel(${space.spaceId}, '${trimmed}')`);
     onSetLabel(space.spaceId, trimmed);
   };
+
+  const handleOpenTodos = useCallback(async () => {
+    const windowLabel = `space-todo-${space.spaceId}`;
+    const existing = await WebviewWindow.getByLabel(windowLabel);
+    if (existing) {
+      await existing.setFocus();
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set("spaceId", String(space.spaceId));
+    params.set("spaceName", space.label || `Space ${space.spaceIndex}`);
+    new WebviewWindow(windowLabel, {
+      url: `/?${params.toString()}`,
+      title: `To-Dos — ${space.label || `Space ${space.spaceIndex}`}`,
+      width: 340,
+      height: 420,
+      resizable: true,
+      decorations: false,
+      transparent: true,
+      center: true,
+      alwaysOnTop: true,
+    });
+  }, [space.spaceId, space.label, space.spaceIndex]);
 
   const isActive = space.spaceId === activeSpaceId;
 
@@ -196,6 +224,54 @@ export function SpaceCard({ space, activeSpaceId, viewMode, appIcons, spaceNameF
                 title="Rename space"
               >
                 ✎
+              </button>
+            )}
+
+            {enableTodos && (
+              <button
+                onClick={handleOpenTodos}
+                className="flex-shrink-0 cursor-pointer"
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: todoCount > 0 ? "var(--accent-blue)" : "var(--text-muted)",
+                  fontSize: "11px",
+                  lineHeight: 1,
+                  padding: "2px",
+                  position: "relative",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text-primary)")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = todoCount > 0 ? "var(--accent-blue)" : "var(--text-muted)")}
+                title={todoCount > 0 ? `${todoCount} open to-do${todoCount !== 1 ? "s" : ""}` : "To-dos"}
+              >
+                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="2 8 5 11 9 5" />
+                  <line x1="11" y1="4" x2="15" y2="4" />
+                  <line x1="11" y1="8" x2="15" y2="8" />
+                  <line x1="11" y1="12" x2="15" y2="12" />
+                  <line x1="2" y1="4" x2="5" y2="4" />
+                  <line x1="2" y1="12" x2="5" y2="12" />
+                </svg>
+                {todoCount > 0 && (
+                  <span style={{
+                    position: "absolute",
+                    top: "-4px",
+                    right: "-5px",
+                    background: "var(--accent-blue)",
+                    color: "#fff",
+                    fontSize: "7px",
+                    fontWeight: 700,
+                    lineHeight: "10px",
+                    minWidth: "10px",
+                    height: "10px",
+                    borderRadius: "5px",
+                    padding: "0 2px",
+                    textAlign: "center",
+                    pointerEvents: "none",
+                  }}>
+                    {todoCount > 99 ? "99+" : todoCount}
+                  </span>
+                )}
               </button>
             )}
 
@@ -374,6 +450,54 @@ export function SpaceCard({ space, activeSpaceId, viewMode, appIcons, spaceNameF
               title="Rename space"
             >
               ✎
+            </button>
+          )}
+
+          {enableTodos && (
+            <button
+              onClick={handleOpenTodos}
+              className="flex-shrink-0 cursor-pointer"
+              style={{
+                background: "transparent",
+                border: "none",
+                color: todoCount > 0 ? "var(--accent-blue)" : "var(--text-muted)",
+                fontSize: "11px",
+                lineHeight: 1,
+                padding: "2px",
+                position: "relative",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--text-primary)")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = todoCount > 0 ? "var(--accent-blue)" : "var(--text-muted)")}
+              title={todoCount > 0 ? `${todoCount} open to-do${todoCount !== 1 ? "s" : ""}` : "To-dos"}
+            >
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="2 8 5 11 9 5" />
+                <line x1="11" y1="4" x2="15" y2="4" />
+                <line x1="11" y1="8" x2="15" y2="8" />
+                <line x1="11" y1="12" x2="15" y2="12" />
+                <line x1="2" y1="4" x2="5" y2="4" />
+                <line x1="2" y1="12" x2="5" y2="12" />
+              </svg>
+              {todoCount > 0 && (
+                <span style={{
+                  position: "absolute",
+                  top: "-4px",
+                  right: "-5px",
+                  background: "var(--accent-blue)",
+                  color: "#fff",
+                  fontSize: "7px",
+                  fontWeight: 700,
+                  lineHeight: "10px",
+                  minWidth: "10px",
+                  height: "10px",
+                  borderRadius: "5px",
+                  padding: "0 2px",
+                  textAlign: "center",
+                  pointerEvents: "none",
+                }}>
+                  {todoCount > 99 ? "99+" : todoCount}
+                </span>
+              )}
             </button>
           )}
 
