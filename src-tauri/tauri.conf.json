@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicr9/tauri-2-workspace/refs/heads/main/src-tauri/gen/schemas/desktop-schema.json",
   "productName": "Swavigator",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "identifier": "com.strattenwaldt.swavigator",
   "build": {
     "frontendDist": "../dist",
