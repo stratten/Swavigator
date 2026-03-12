@@ -177,6 +177,8 @@ export interface UserSettings {
   dockTriggerOpacity?: number;
   /** Delay in ms before the panel hides after the cursor leaves. */
   dockHideDelay?: number;
+  /** Which screen edge the panel is docked to. */
+  dockEdge?: "left" | "right" | "top" | "bottom";
   /** Whether the per-space Tasks feature is enabled. Default true. */
   enableTodos?: boolean;
   /** Whether file logging to ~/Desktop/Swavigator_Logs/ is enabled. */

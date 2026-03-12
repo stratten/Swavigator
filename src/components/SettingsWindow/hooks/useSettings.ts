@@ -172,6 +172,7 @@ export function useSettings(): UseSettingsReturn {
         traySplitPercent: base?.traySplitPercent ?? 30,
         showMinimized: base?.showMinimized ?? showMinimized,
         dockMode: base?.dockMode ?? dockMode,
+        dockEdge: base?.dockEdge,
         dockTriggerSize: base?.dockTriggerSize ?? dockTriggerSize,
         dockTriggerOpacity: base?.dockTriggerOpacity ?? dockTriggerOpacity,
         dockHideDelay: base?.dockHideDelay ?? dockHideDelay,

@@ -48,8 +48,9 @@ export function useWindowGeometry(
       const w = Math.round(physicalSize.width / scaleFactor);
       const h = Math.round(physicalSize.height / scaleFactor);
 
-      // Ignore if it matches the compact size.
+      // Ignore compact panel and dock trigger strip dimensions.
       if (w <= COMPACT_WIDTH && h <= COMPACT_HEIGHT) return;
+      if (w < 50 || h < 50) return;
 
       // Save to the correct ref for the current orientation.
       if (orientation === "horizontal") {

@@ -31,6 +31,7 @@ export interface SettingsState {
   traySplitPercent: number;
   showMinimized: boolean;
   dockMode: boolean;
+  dockEdge: "left" | "right" | "top" | "bottom";
   dockTriggerSize: number;
   dockTriggerOpacity: number;
   dockHideDelay: number;
@@ -77,6 +78,7 @@ export function useSettingsPersistence(
   const [traySplitPercent, setTraySplitPercent] = useState(30);
   const [showMinimized, setShowMinimized] = useState(true);
   const [dockMode, setDockMode] = useState(false);
+  const [dockEdge, setDockEdge] = useState<"left" | "right" | "top" | "bottom">("left");
   const [dockTriggerSize, setDockTriggerSize] = useState(DEFAULT_DOCK_TRIGGER_SIZE);
   const [dockTriggerOpacity, setDockTriggerOpacity] = useState(DEFAULT_DOCK_TRIGGER_OPACITY);
   const [dockHideDelay, setDockHideDelay] = useState(DEFAULT_DOCK_HIDE_DELAY);
@@ -105,16 +107,23 @@ export function useSettingsPersistence(
         return;
       }
       const base = fullSettingsRef.current;
+      // When dock mode is active the window may be a thin trigger strip.
+      // Never let those dimensions leak into the persisted expanded size —
+      // always preserve the previously stored values in that case.
+      const safeExpandedW = dockMode ? (base?.expandedWidth ?? expandedSizeRef.current.width) : expandedSizeRef.current.width;
+      const safeExpandedH = dockMode ? (base?.expandedHeight ?? expandedSizeRef.current.height) : expandedSizeRef.current.height;
+      const safeHorizW = dockMode ? (base?.expandedHorizontalWidth ?? horizontalSizeRef.current.width) : horizontalSizeRef.current.width;
+      const safeHorizH = dockMode ? (base?.expandedHorizontalHeight ?? horizontalSizeRef.current.height) : horizontalSizeRef.current.height;
       const merged: UserSettings = {
         ...base,
         spaceViewModes: base?.spaceViewModes ?? {},
         viewMode,
         spaceNameFontSize,
         windowFontSize,
-        expandedWidth: expandedSizeRef.current.width,
-        expandedHeight: expandedSizeRef.current.height,
-        expandedHorizontalWidth: horizontalSizeRef.current.width,
-        expandedHorizontalHeight: horizontalSizeRef.current.height,
+        expandedWidth: safeExpandedW,
+        expandedHeight: safeExpandedH,
+        expandedHorizontalWidth: safeHorizW,
+        expandedHorizontalHeight: safeHorizH,
         fontFamily,
         toggleHotkey,
         lowOpacityWhenIdle,
@@ -124,6 +133,7 @@ export function useSettingsPersistence(
         traySplitPercent,
         showMinimized,
         dockMode,
+        dockEdge,
         dockTriggerSize,
         dockTriggerOpacity,
         dockHideDelay,
@@ -138,7 +148,7 @@ export function useSettingsPersistence(
         feLog("error", `[FloatingPanel] Failed to save settings: ${err}`),
       );
     },
-    [viewMode, spaceNameFontSize, windowFontSize, fontFamily, toggleHotkey, lowOpacityWhenIdle, idleOpacity, highlightRunningApps, orientation, traySplitPercent, showMinimized, dockMode, dockTriggerSize, dockTriggerOpacity, dockHideDelay, enableTodos],
+    [viewMode, spaceNameFontSize, windowFontSize, fontFamily, toggleHotkey, lowOpacityWhenIdle, idleOpacity, highlightRunningApps, orientation, traySplitPercent, showMinimized, dockMode, dockEdge, dockTriggerSize, dockTriggerOpacity, dockHideDelay, enableTodos],
   );
 
   // Load settings on mount.
@@ -165,6 +175,7 @@ export function useSettingsPersistence(
         if (settings.traySplitPercent != null) setTraySplitPercent(settings.traySplitPercent);
         if (settings.showMinimized != null) setShowMinimized(settings.showMinimized);
         if (settings.dockMode != null) setDockMode(settings.dockMode);
+        if (settings.dockEdge) setDockEdge(settings.dockEdge);
         if (settings.dockTriggerSize != null) setDockTriggerSize(settings.dockTriggerSize);
         if (settings.dockTriggerOpacity != null) setDockTriggerOpacity(settings.dockTriggerOpacity);
         if (settings.dockHideDelay != null) setDockHideDelay(settings.dockHideDelay);
@@ -188,7 +199,11 @@ export function useSettingsPersistence(
         // resize/move event during setup could fire persistSettings with stale
         // default values (e.g. viewMode="compact"), overwriting the real ones.
         setTimeout(() => {
-          ignoringMoveRef.current = false;
+          // Only re-enable move persistence if dock mode is NOT active.
+          // When dock mode is on, useDockMode manages this flag.
+          if (!settings.dockMode) {
+            ignoringMoveRef.current = false;
+          }
           settingsLoadedRef.current = true;
         }, 500);
 
@@ -223,6 +238,7 @@ export function useSettingsPersistence(
       if (s.traySplitPercent != null) setTraySplitPercent(s.traySplitPercent);
       if (s.showMinimized !== undefined) setShowMinimized(s.showMinimized);
       if (s.dockMode !== undefined) setDockMode(s.dockMode);
+      if (s.dockEdge) setDockEdge(s.dockEdge);
       if (s.dockTriggerSize != null) setDockTriggerSize(s.dockTriggerSize);
       if (s.dockTriggerOpacity != null) setDockTriggerOpacity(s.dockTriggerOpacity);
       if (s.dockHideDelay != null) setDockHideDelay(s.dockHideDelay);
@@ -286,6 +302,7 @@ export function useSettingsPersistence(
       traySplitPercent,
       showMinimized,
       dockMode,
+      dockEdge,
       dockTriggerSize,
       dockTriggerOpacity,
       dockHideDelay,

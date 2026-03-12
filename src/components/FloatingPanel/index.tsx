@@ -132,6 +132,7 @@ export function FloatingPanel() {
     traySplitPercent,
     showMinimized,
     dockMode,
+    dockEdge,
     dockTriggerSize,
     dockTriggerOpacity,
     dockHideDelay,
@@ -154,6 +155,7 @@ export function FloatingPanel() {
   // ─── Dock Mode (Auto-Show on Hover) ────────────────────────────────────
   const { isDockExpanded, dockModeActive } = useDockMode(
     dockMode,
+    dockEdge,
     dockTriggerSize,
     dockHideDelay,
     orientation,
@@ -161,6 +163,7 @@ export function FloatingPanel() {
     horizontalSizeRef,
     ignoringResizeRef,
     ignoringMoveRef,
+    persistSettings,
   );
 
   // ─── Divider Drag ───────────────────────────────────────────────────────

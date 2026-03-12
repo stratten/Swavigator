@@ -209,6 +209,10 @@ pub struct UserSettings {
     #[serde(default = "default_dock_hide_delay")]
     pub dock_hide_delay: u32,
 
+    /// Which screen edge the panel is docked to ("left", "right", "top", "bottom").
+    #[serde(default = "default_dock_edge")]
+    pub dock_edge: String,
+
     /// Whether the per-space Tasks feature is enabled. Default true.
     #[serde(default = "default_true")]
     pub enable_todos: bool,
@@ -245,6 +249,7 @@ impl Default for UserSettings {
             dock_trigger_size: default_dock_trigger_size(),
             dock_trigger_opacity: default_dock_trigger_opacity(),
             dock_hide_delay: default_dock_hide_delay(),
+            dock_edge: default_dock_edge(),
             enable_todos: true,
             enable_logging: false,
         }
@@ -313,6 +318,10 @@ fn default_dock_trigger_opacity() -> f64 {
 
 fn default_dock_hide_delay() -> u32 {
     800
+}
+
+fn default_dock_edge() -> String {
+    "left".to_string()
 }
 
 /// Build a canonical key for a space: "displayId:spaceIndex".
