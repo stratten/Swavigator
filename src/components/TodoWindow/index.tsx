@@ -47,6 +47,11 @@ export function TodoWindow() {
   const [editDraft, setEditDraft] = useState("");
   const addEditorKeyRef = useRef(0);
 
+  // Per-space tab state.
+  const [activeTab, setActiveTab] = useState<"open" | "done">("open");
+  // IDs of todos that were just toggled — kept visible briefly before moving tabs.
+  const [transitioning, setTransitioning] = useState<Set<string>>(new Set());
+
   // Available spaces for the move-to dropdown (overview mode only).
   const [spaceOptions, setSpaceOptions] = useState<SpaceOption[]>([]);
 
@@ -129,9 +134,25 @@ export function TodoWindow() {
 
   const handleToggle = useCallback(async (sid: number, todoId: string) => {
     await invoke("toggle_space_todo", { spaceId: sid, todoId });
-    await loadTodos();
     notifyChange();
-  }, [loadTodos, notifyChange]);
+
+    if (!isOverview) {
+      // Mark the item as transitioning so it stays visible briefly.
+      setTransitioning((prev) => new Set(prev).add(todoId));
+      // Reload immediately so the checkbox reflects the new state.
+      await loadTodos();
+      // After a short delay, remove from transitioning (it disappears from the current tab).
+      setTimeout(() => {
+        setTransitioning((prev) => {
+          const next = new Set(prev);
+          next.delete(todoId);
+          return next;
+        });
+      }, 600);
+    } else {
+      await loadTodos();
+    }
+  }, [isOverview, loadTodos, notifyChange]);
 
   const handleDelete = useCallback(async (sid: number, todoId: string) => {
     await invoke("delete_space_todo", { spaceId: sid, todoId });
@@ -186,6 +207,15 @@ export function TodoWindow() {
 
   const incompleteSingle = todos.filter((t) => !t.completed).length;
   const completeSingle = todos.filter((t) => t.completed).length;
+
+  // Per-space tab filtering: show items belonging to the active tab,
+  // plus any items that are transitioning (just toggled, fading out).
+  const visibleTodos = isOverview
+    ? todos
+    : todos.filter((t) => {
+        if (transitioning.has(t.id)) return true;
+        return activeTab === "open" ? !t.completed : t.completed;
+      });
 
   // Build dropdown options: "Unassigned" + active spaces.
   const moveOptions: SpaceOption[] = [
@@ -292,7 +322,52 @@ export function TodoWindow() {
           )
         ) : (
           <>
-            {todos.length === 0 && (
+            {/* Open / Done tabs */}
+            <div
+              className="flex gap-0 flex-shrink-0"
+              style={{
+                marginBottom: "8px",
+                borderBottom: "1px solid var(--panel-border)",
+              }}
+            >
+              {(["open", "done"] as const).map((tab) => {
+                const isActive = activeTab === tab;
+                const count = tab === "open" ? incompleteSingle : completeSingle;
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className="cursor-pointer"
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      borderBottom: isActive ? "2px solid var(--accent-blue)" : "2px solid transparent",
+                      color: isActive ? "var(--text-primary)" : "var(--text-muted)",
+                      fontSize: "12px",
+                      fontWeight: isActive ? 600 : 400,
+                      padding: "4px 12px 6px",
+                      transition: "color 0.15s, border-color 0.15s",
+                    }}
+                  >
+                    {tab === "open" ? "Open" : "Done"}
+                    {count > 0 && (
+                      <span
+                        style={{
+                          marginLeft: "5px",
+                          fontSize: "10px",
+                          color: isActive ? "var(--accent-blue)" : "var(--text-muted)",
+                          fontWeight: 600,
+                        }}
+                      >
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {visibleTodos.length === 0 && (
               <div
                 className="flex items-center justify-center"
                 style={{
@@ -301,66 +376,69 @@ export function TodoWindow() {
                   padding: "24px 0",
                 }}
               >
-                No to-dos yet. Add one below.
+                {activeTab === "open"
+                  ? todos.length === 0
+                    ? "No to-dos yet. Add one below."
+                    : "All done!"
+                  : "No completed to-dos."}
               </div>
             )}
-            {todos.length > 0 && (
-              <div style={{ marginBottom: "4px" }}>
-                <span style={{ color: "var(--text-muted)", fontSize: "10px" }}>
-                  {incompleteSingle} remaining · {completeSingle} done
-                </span>
-              </div>
-            )}
-            {renderTodoList(todos, spaceId!)}
+            {renderTodoList(visibleTodos, spaceId!)}
           </>
         )}
       </div>
 
-      {/* Add editor — shown in both per-space and overview mode */}
-      <div
-        className="flex-shrink-0 flex flex-col gap-2"
-        style={{
-          padding: "8px 12px",
-          borderTop: "1px solid var(--panel-border)",
-        }}
-      >
-        <RichTextEditor
-          key={addEditorKeyRef.current}
-          content=""
-          onUpdate={setNewHtml}
-          placeholder="Cmd+Enter to add"
-          onSubmit={() => handleAdd()}
-          autofocus
-        />
-        <div className="flex justify-end">
-          <button
-            onClick={() => handleAdd()}
-            className="cursor-pointer"
-            style={{
-              background: "var(--accent-blue)",
-              color: "#fff",
-              border: "none",
-              borderRadius: "4px",
-              fontSize: "12px",
-              padding: "4px 12px",
-              fontWeight: 600,
-            }}
-          >
-            Add
-          </button>
+      {/* Add editor — shown on the Open tab (per-space) or always (overview) */}
+      {(isOverview || activeTab === "open") && (
+        <div
+          className="flex-shrink-0 flex flex-col gap-2"
+          style={{
+            padding: "8px 12px",
+            borderTop: "1px solid var(--panel-border)",
+          }}
+        >
+          <RichTextEditor
+            key={addEditorKeyRef.current}
+            content=""
+            onUpdate={setNewHtml}
+            placeholder="Cmd+Enter to add"
+            onSubmit={() => handleAdd()}
+            autofocus
+          />
+          <div className="flex justify-end">
+            <button
+              onClick={() => handleAdd()}
+              className="cursor-pointer"
+              style={{
+                background: "var(--accent-blue)",
+                color: "#fff",
+                border: "none",
+                borderRadius: "4px",
+                fontSize: "12px",
+                padding: "4px 12px",
+                fontWeight: 600,
+              }}
+            >
+              Add
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 
   function renderTodoList(items: TodoItem[], sid: number) {
-    return items.map((todo) => (
+    return items.map((todo) => {
+      const isFading = transitioning.has(todo.id);
+      return (
       <div
         key={todo.id}
         className="flex items-start gap-2"
         style={{
           padding: "4px 0",
           borderBottom: "1px solid rgba(255,255,255,0.04)",
+          opacity: isFading ? 0.4 : 1,
+          transition: "opacity 0.4s ease",
         }}
       >
         <input
@@ -456,6 +534,7 @@ export function TodoWindow() {
           ✕
         </button>
       </div>
-    ));
+      );
+    });
   }
 }

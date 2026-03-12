@@ -25,6 +25,8 @@ export interface SettingsState {
   dockTriggerOpacity: number;
   dockHideDelay: number;
   enableTodos: boolean;
+  enableLogging: boolean;
+  logFilePath: string | null;
   loaded: boolean;
 }
 
@@ -46,6 +48,7 @@ export interface UseSettingsReturn {
   setDockTriggerOpacity: (opacity: number) => void;
   setDockHideDelay: (delay: number) => void;
   setEnableTodos: (enabled: boolean) => void;
+  setEnableLogging: (enabled: boolean) => void;
   updateSetting: (overrides: Partial<UserSettings>) => void;
 }
 
@@ -71,6 +74,8 @@ export function useSettings(): UseSettingsReturn {
   const [dockTriggerOpacity, setDockTriggerOpacityState] = useState(0.02);
   const [dockHideDelay, setDockHideDelayState] = useState(800);
   const [enableTodos, setEnableTodosState] = useState(true);
+  const [enableLogging, setEnableLoggingState] = useState(false);
+  const [logFilePath, setLogFilePath] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   // Keep a ref to the full settings object for partial updates.
@@ -99,6 +104,10 @@ export function useSettings(): UseSettingsReturn {
         if (s.dockTriggerOpacity != null) setDockTriggerOpacityState(s.dockTriggerOpacity);
         if (s.dockHideDelay != null) setDockHideDelayState(s.dockHideDelay);
         if (s.enableTodos != null) setEnableTodosState(s.enableTodos);
+        if (s.enableLogging != null) setEnableLoggingState(s.enableLogging);
+        if (s.enableLogging) {
+          invoke<string | null>("get_log_file_path").then((p) => setLogFilePath(p)).catch(() => {});
+        }
         feLog(
           "info",
           `[SettingsWindow] State applied — lowOpacityWhenIdle=${s.lowOpacityWhenIdle} | suppressDock=${s.suppressDock} | highlightRunningApps=${s.highlightRunningApps} | showMinimized=${s.showMinimized} | orientation=${s.orientation} | dockMode=${s.dockMode}`,
@@ -125,6 +134,7 @@ export function useSettings(): UseSettingsReturn {
       if (s.dockTriggerOpacity != null) setDockTriggerOpacityState(s.dockTriggerOpacity);
       if (s.dockHideDelay != null) setDockHideDelayState(s.dockHideDelay);
       if (s.enableTodos !== undefined) setEnableTodosState(s.enableTodos);
+      if (s.enableLogging !== undefined) setEnableLoggingState(s.enableLogging);
     });
     return () => {
       unlisten.then((fn) => fn());
@@ -166,6 +176,7 @@ export function useSettings(): UseSettingsReturn {
         dockTriggerOpacity: base?.dockTriggerOpacity ?? dockTriggerOpacity,
         dockHideDelay: base?.dockHideDelay ?? dockHideDelay,
         enableTodos: base?.enableTodos ?? enableTodos,
+        enableLogging: base?.enableLogging ?? enableLogging,
         ...overrides,
       };
       feLog(
@@ -178,7 +189,7 @@ export function useSettings(): UseSettingsReturn {
       });
       emit("settings-changed", merged);
     },
-    [viewMode, spaceNameFontSize, windowFontSize, fontFamily, toggleHotkey, lowOpacityWhenIdle, idleOpacity, highlightRunningApps, orientation, showMinimized, dockMode, dockTriggerSize, dockTriggerOpacity, dockHideDelay, enableTodos],
+    [viewMode, spaceNameFontSize, windowFontSize, fontFamily, toggleHotkey, lowOpacityWhenIdle, idleOpacity, highlightRunningApps, orientation, showMinimized, dockMode, dockTriggerSize, dockTriggerOpacity, dockHideDelay, enableTodos, enableLogging],
   );
 
   // Wrapped setters that also persist.
@@ -313,6 +324,19 @@ export function useSettings(): UseSettingsReturn {
     [updateSetting],
   );
 
+  const setEnableLogging = useCallback(
+    (enabled: boolean) => {
+      setEnableLoggingState(enabled);
+      updateSetting({ enableLogging: enabled });
+      invoke<string | null>("toggle_file_logging", { enabled })
+        .then((path) => setLogFilePath(path ?? null))
+        .catch((err) =>
+          feLog("error", `[SettingsWindow] Failed to toggle file logging: ${err}`),
+        );
+    },
+    [updateSetting],
+  );
+
   return {
     state: {
       viewMode,
@@ -331,6 +355,8 @@ export function useSettings(): UseSettingsReturn {
       dockTriggerOpacity,
       dockHideDelay,
       enableTodos,
+      enableLogging,
+      logFilePath,
       loaded,
     },
     setViewMode,
@@ -349,6 +375,7 @@ export function useSettings(): UseSettingsReturn {
     setDockTriggerOpacity,
     setDockHideDelay,
     setEnableTodos,
+    setEnableLogging,
     updateSetting,
   };
 }

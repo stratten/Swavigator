@@ -10,6 +10,7 @@ extern crate objc;
 
 mod apps;
 mod commands;
+mod logging;
 mod navigator;
 mod spaces;
 mod storage;
@@ -18,12 +19,17 @@ mod windows;
 use tauri::WebviewWindowBuilder;
 
 pub fn run() {
-    // Default to info-level logging so diagnostic messages appear in the
-    // terminal. The RUST_LOG env var can still override this at runtime.
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("info"),
-    )
-    .init();
+    logging::init();
+
+    // If the user previously enabled file logging, activate it on startup.
+    {
+        let data = storage::load();
+        if data.settings.enable_logging {
+            if let Err(e) = logging::enable_file_logging() {
+                log::warn!("[startup] Failed to enable file logging: {}", e);
+            }
+        }
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -60,6 +66,9 @@ pub fn run() {
             commands::delete_space_todo,
             commands::update_space_todo_text,
             commands::move_space_todo,
+            // File logging
+            commands::toggle_file_logging,
+            commands::get_log_file_path,
             // App discovery, icons, launching
             commands::app_discovery::get_app_icon,
             commands::app_discovery::get_dock_apps,

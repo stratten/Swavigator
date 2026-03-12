@@ -12,7 +12,7 @@ pub mod dock;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::{navigator, spaces, storage, windows};
+use crate::{logging, navigator, spaces, storage, windows};
 
 // ---------------------------------------------------------------------------
 // Cursor position (for hover detection on unfocused windows)
@@ -364,6 +364,30 @@ pub fn update_space_todo_text(space_id: i64, todo_id: String, text: String) -> R
 pub fn move_space_todo(from_space_id: i64, to_space_id: i64, todo_id: String) -> Result<(), String> {
     log::info!("[cmd] move_space_todo: from={}, to={}, todo_id='{}'", from_space_id, to_space_id, todo_id);
     storage::move_todo(from_space_id, to_space_id, &todo_id)
+}
+
+// ---------------------------------------------------------------------------
+// File logging commands
+// ---------------------------------------------------------------------------
+
+/// Enable or disable file logging to ~/Desktop/Swavigator_Logs/.
+/// Returns the log file path when enabling, or null when disabling.
+#[tauri::command]
+pub fn toggle_file_logging(enabled: bool) -> Result<Option<String>, String> {
+    log::info!("[cmd] toggle_file_logging: enabled={}", enabled);
+    if enabled {
+        let path = logging::enable_file_logging()?;
+        Ok(Some(path.to_string_lossy().into_owned()))
+    } else {
+        logging::disable_file_logging();
+        Ok(None)
+    }
+}
+
+/// Get the path to the currently active log file, if any.
+#[tauri::command]
+pub fn get_log_file_path() -> Option<String> {
+    logging::get_log_file_path().map(|p| p.to_string_lossy().into_owned())
 }
 
 // ---------------------------------------------------------------------------

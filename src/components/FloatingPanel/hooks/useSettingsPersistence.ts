@@ -128,6 +128,7 @@ export function useSettingsPersistence(
         dockTriggerOpacity,
         dockHideDelay,
         enableTodos,
+        enableLogging: base?.enableLogging,
         ...overrides,
       };
       fullSettingsRef.current = merged;

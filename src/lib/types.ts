@@ -179,4 +179,6 @@ export interface UserSettings {
   dockHideDelay?: number;
   /** Whether the per-space Tasks feature is enabled. Default true. */
   enableTodos?: boolean;
+  /** Whether file logging to ~/Desktop/Swavigator_Logs/ is enabled. */
+  enableLogging?: boolean;
 }

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { useSpaceState } from "../../hooks/useSpaceState";
 import { useHotkeys } from "../../hooks/useHotkeys";
 import { useAppIcons } from "../../hooks/useAppIcons";
@@ -111,6 +111,7 @@ export function FloatingPanel() {
     settings,
     setViewMode,
     setTraySplitPercent,
+    setDockMode,
     persistSettings,
     expandedSizeRef,
     horizontalSizeRef,
@@ -306,6 +307,13 @@ export function FloatingPanel() {
     persistSettings({ viewMode: next });
   }, [viewMode, setViewMode, persistSettings]);
 
+  const handleToggleDockMode = useCallback(() => {
+    const next = !dockMode;
+    setDockMode(next);
+    persistSettings({ dockMode: next });
+    emit("settings-changed", { dockMode: next });
+  }, [dockMode, setDockMode, persistSettings]);
+
   const handleToggleAllSpaces = useCallback(() => {
     const newCollapsed = !allCollapsed;
     for (const s of spaces) {
@@ -378,6 +386,7 @@ export function FloatingPanel() {
         showSearch={showSearch}
         allCollapsed={allCollapsed}
         orientation={orientation}
+        dockMode={dockMode}
         totalTodoCount={enableTodos ? totalTodoCount : 0}
         enableTodos={enableTodos}
         onOpenSettings={handleOpenSettings}
@@ -387,6 +396,7 @@ export function FloatingPanel() {
         onCycleViewMode={cycleViewMode}
         onToggleAllSpaces={handleToggleAllSpaces}
         onToggleOrientation={handleToggleOrientation}
+        onToggleDockMode={handleToggleDockMode}
       />
 
       {showSearch && (

@@ -29,6 +29,7 @@ export function SettingsWindow() {
     setDockTriggerOpacity,
     setDockHideDelay,
     setEnableTodos,
+    setEnableLogging,
   } = useSettings();
 
   const handleClose = useCallback(() => {
@@ -315,6 +316,36 @@ export function SettingsWindow() {
         <SettingRow label="Toggle Visibility">
           <HotkeyRecorder value={state.toggleHotkey} onChange={setToggleHotkey} />
         </SettingRow>
+
+        {/* ── Diagnostics ──────────────────────────── */}
+        <SectionHeader>Diagnostics</SectionHeader>
+
+        <SettingRow label="Enable File Logging">
+          <ToggleSwitch checked={state.enableLogging} onChange={setEnableLogging} />
+        </SettingRow>
+
+        {state.enableLogging && state.logFilePath && (
+          <div
+            className="text-xs mb-2"
+            style={{
+              color: "var(--text-muted)",
+              fontSize: "10px",
+              wordBreak: "break-all",
+              paddingLeft: "4px",
+            }}
+          >
+            Logging to: {state.logFilePath}
+          </div>
+        )}
+
+        {!state.enableLogging && (
+          <div
+            className="text-xs mb-2"
+            style={{ color: "var(--text-muted)", fontSize: "10px", paddingLeft: "4px" }}
+          >
+            Writes logs to ~/Desktop/Swavigator_Logs/ for troubleshooting.
+          </div>
+        )}
 
         {/* Hints */}
         <div

@@ -212,6 +212,10 @@ pub struct UserSettings {
     /// Whether the per-space Tasks feature is enabled. Default true.
     #[serde(default = "default_true")]
     pub enable_todos: bool,
+
+    /// Whether file logging to ~/Desktop/Swavigator_Logs/ is enabled.
+    #[serde(default)]
+    pub enable_logging: bool,
 }
 
 impl Default for UserSettings {
@@ -242,6 +246,7 @@ impl Default for UserSettings {
             dock_trigger_opacity: default_dock_trigger_opacity(),
             dock_hide_delay: default_dock_hide_delay(),
             enable_todos: true,
+            enable_logging: false,
         }
     }
 }
