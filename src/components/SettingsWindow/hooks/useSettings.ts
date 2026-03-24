@@ -21,6 +21,7 @@ export interface SettingsState {
   orientation: "vertical" | "horizontal";
   showMinimized: boolean;
   dockMode: boolean;
+  dockEdge: "left" | "right" | "top" | "bottom";
   dockTriggerSize: number;
   dockTriggerOpacity: number;
   dockHideDelay: number;
@@ -47,6 +48,7 @@ export interface UseSettingsReturn {
   setDockTriggerSize: (size: number) => void;
   setDockTriggerOpacity: (opacity: number) => void;
   setDockHideDelay: (delay: number) => void;
+  setDockEdge: (edge: "left" | "right" | "top" | "bottom") => void;
   setEnableTodos: (enabled: boolean) => void;
   setEnableLogging: (enabled: boolean) => void;
   updateSetting: (overrides: Partial<UserSettings>) => void;
@@ -70,6 +72,7 @@ export function useSettings(): UseSettingsReturn {
   const [orientation, setOrientationState] = useState<"vertical" | "horizontal">("vertical");
   const [showMinimized, setShowMinimizedState] = useState(true);
   const [dockMode, setDockModeState] = useState(false);
+  const [dockEdge, setDockEdgeState] = useState<"left" | "right" | "top" | "bottom">("left");
   const [dockTriggerSize, setDockTriggerSizeState] = useState(8);
   const [dockTriggerOpacity, setDockTriggerOpacityState] = useState(0.02);
   const [dockHideDelay, setDockHideDelayState] = useState(800);
@@ -100,6 +103,7 @@ export function useSettings(): UseSettingsReturn {
         if (s.orientation) setOrientationState(s.orientation as "vertical" | "horizontal");
         if (s.showMinimized != null) setShowMinimizedState(s.showMinimized);
         if (s.dockMode != null) setDockModeState(s.dockMode);
+        if (s.dockEdge) setDockEdgeState(s.dockEdge as "left" | "right" | "top" | "bottom");
         if (s.dockTriggerSize != null) setDockTriggerSizeState(s.dockTriggerSize);
         if (s.dockTriggerOpacity != null) setDockTriggerOpacityState(s.dockTriggerOpacity);
         if (s.dockHideDelay != null) setDockHideDelayState(s.dockHideDelay);
@@ -130,6 +134,7 @@ export function useSettings(): UseSettingsReturn {
       }
       if (s.orientation) setOrientationState(s.orientation as "vertical" | "horizontal");
       if (s.dockMode !== undefined) setDockModeState(s.dockMode);
+      if (s.dockEdge) setDockEdgeState(s.dockEdge as "left" | "right" | "top" | "bottom");
       if (s.dockTriggerSize != null) setDockTriggerSizeState(s.dockTriggerSize);
       if (s.dockTriggerOpacity != null) setDockTriggerOpacityState(s.dockTriggerOpacity);
       if (s.dockHideDelay != null) setDockHideDelayState(s.dockHideDelay);
@@ -172,7 +177,7 @@ export function useSettings(): UseSettingsReturn {
         traySplitPercent: base?.traySplitPercent ?? 30,
         showMinimized: base?.showMinimized ?? showMinimized,
         dockMode: base?.dockMode ?? dockMode,
-        dockEdge: base?.dockEdge,
+        dockEdge: base?.dockEdge ?? dockEdge,
         dockTriggerSize: base?.dockTriggerSize ?? dockTriggerSize,
         dockTriggerOpacity: base?.dockTriggerOpacity ?? dockTriggerOpacity,
         dockHideDelay: base?.dockHideDelay ?? dockHideDelay,
@@ -190,7 +195,7 @@ export function useSettings(): UseSettingsReturn {
       });
       emit("settings-changed", merged);
     },
-    [viewMode, spaceNameFontSize, windowFontSize, fontFamily, toggleHotkey, lowOpacityWhenIdle, idleOpacity, highlightRunningApps, orientation, showMinimized, dockMode, dockTriggerSize, dockTriggerOpacity, dockHideDelay, enableTodos, enableLogging],
+    [viewMode, spaceNameFontSize, windowFontSize, fontFamily, toggleHotkey, lowOpacityWhenIdle, idleOpacity, highlightRunningApps, orientation, showMinimized, dockMode, dockEdge, dockTriggerSize, dockTriggerOpacity, dockHideDelay, enableTodos, enableLogging],
   );
 
   // Wrapped setters that also persist.
@@ -317,6 +322,14 @@ export function useSettings(): UseSettingsReturn {
     [updateSetting],
   );
 
+  const setDockEdge = useCallback(
+    (edge: "left" | "right" | "top" | "bottom") => {
+      setDockEdgeState(edge);
+      updateSetting({ dockEdge: edge });
+    },
+    [updateSetting],
+  );
+
   const setEnableTodos = useCallback(
     (enabled: boolean) => {
       setEnableTodosState(enabled);
@@ -352,6 +365,7 @@ export function useSettings(): UseSettingsReturn {
       orientation,
       showMinimized,
       dockMode,
+      dockEdge,
       dockTriggerSize,
       dockTriggerOpacity,
       dockHideDelay,
@@ -375,6 +389,7 @@ export function useSettings(): UseSettingsReturn {
     setDockTriggerSize,
     setDockTriggerOpacity,
     setDockHideDelay,
+    setDockEdge,
     setEnableTodos,
     setEnableLogging,
     updateSetting,

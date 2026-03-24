@@ -38,6 +38,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // Core commands (spaces, settings, groups)
             commands::get_space_state,
+            commands::get_space_list,
             commands::get_cursor_position,
             commands::log_from_frontend,
             commands::set_space_label,
@@ -58,14 +59,15 @@ pub fn run() {
             commands::reorder_app_groups,
             commands::set_app_tray_visible,
             commands::get_app_tray_visible,
-            // Space to-dos
+            // To-dos
             commands::get_space_todos,
-            commands::get_all_space_todos,
-            commands::add_space_todo,
-            commands::toggle_space_todo,
-            commands::delete_space_todo,
-            commands::update_space_todo_text,
-            commands::move_space_todo,
+            commands::get_all_todos,
+            commands::add_todo,
+            commands::toggle_todo,
+            commands::delete_todo,
+            commands::update_todo_text,
+            commands::update_todo_subject,
+            commands::move_todo,
             // File logging
             commands::toggle_file_logging,
             commands::get_log_file_path,

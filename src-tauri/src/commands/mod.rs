@@ -110,6 +110,37 @@ pub fn get_space_state() -> Result<SpaceStatePayload, String> {
     build_state_payload().ok_or_else(|| "Failed to enumerate spaces.".to_string())
 }
 
+/// Lightweight list of spaces with labels — no window enumeration.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpaceListEntry {
+    pub space_id: i64,
+    pub space_index: usize,
+    pub label: String,
+}
+
+#[tauri::command]
+pub fn get_space_list() -> Result<Vec<SpaceListEntry>, String> {
+    let space_list =
+        spaces::enumerate_spaces().ok_or_else(|| "Failed to enumerate spaces.".to_string())?;
+    let stored = storage::load();
+    Ok(space_list
+        .into_iter()
+        .map(|s| {
+            let label = stored
+                .labels_by_space_id
+                .get(&s.space_id)
+                .cloned()
+                .unwrap_or_default();
+            SpaceListEntry {
+                space_id: s.space_id,
+                space_index: s.space_index,
+                label,
+            }
+        })
+        .collect())
+}
+
 /// Set a label for a space. Uses spaceId for storage (survives reordering).
 #[tauri::command]
 pub fn set_space_label(
@@ -316,7 +347,7 @@ pub fn get_app_tray_visible() -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Space to-do commands
+// To-do commands
 // ---------------------------------------------------------------------------
 
 /// Get all to-do items for a specific space.
@@ -325,45 +356,52 @@ pub fn get_space_todos(space_id: i64) -> Vec<storage::TodoItem> {
     storage::get_todos_by_space_id(space_id)
 }
 
-/// Get all to-dos across all spaces, keyed by spaceId.
+/// Get all to-dos as a flat list.
 #[tauri::command]
-pub fn get_all_space_todos() -> std::collections::HashMap<i64, Vec<storage::TodoItem>> {
+pub fn get_all_todos() -> Vec<storage::TodoItem> {
     storage::get_all_todos()
 }
 
-/// Add a new to-do item to a space. Returns the created item.
+/// Add a new to-do item. `space_id` is null for unassigned.
 #[tauri::command]
-pub fn add_space_todo(space_id: i64, text: String) -> Result<storage::TodoItem, String> {
-    log::info!("[cmd] add_space_todo: space_id={}, text='{}'", space_id, text);
-    storage::add_todo(space_id, &text)
+pub fn add_todo(space_id: Option<i64>, subject: String, text: String) -> Result<storage::TodoItem, String> {
+    log::info!("[cmd] add_todo: space_id={:?}, subject='{}', text='{}'", space_id, subject, text);
+    storage::add_todo(space_id, &subject, &text)
 }
 
 /// Toggle the completed state of a to-do item.
 #[tauri::command]
-pub fn toggle_space_todo(space_id: i64, todo_id: String) -> Result<(), String> {
-    log::info!("[cmd] toggle_space_todo: space_id={}, todo_id='{}'", space_id, todo_id);
-    storage::toggle_todo(space_id, &todo_id)
+pub fn toggle_todo(todo_id: String) -> Result<(), String> {
+    log::info!("[cmd] toggle_todo: todo_id='{}'", todo_id);
+    storage::toggle_todo(&todo_id)
 }
 
-/// Delete a to-do item from a space.
+/// Delete a to-do item.
 #[tauri::command]
-pub fn delete_space_todo(space_id: i64, todo_id: String) -> Result<(), String> {
-    log::info!("[cmd] delete_space_todo: space_id={}, todo_id='{}'", space_id, todo_id);
-    storage::delete_todo(space_id, &todo_id)
+pub fn delete_todo(todo_id: String) -> Result<(), String> {
+    log::info!("[cmd] delete_todo: todo_id='{}'", todo_id);
+    storage::delete_todo(&todo_id)
 }
 
 /// Update the text of an existing to-do item.
 #[tauri::command]
-pub fn update_space_todo_text(space_id: i64, todo_id: String, text: String) -> Result<(), String> {
-    log::info!("[cmd] update_space_todo_text: space_id={}, todo_id='{}', text='{}'", space_id, todo_id, text);
-    storage::update_todo_text(space_id, &todo_id, &text)
+pub fn update_todo_text(todo_id: String, text: String) -> Result<(), String> {
+    log::info!("[cmd] update_todo_text: todo_id='{}', text='{}'", todo_id, text);
+    storage::update_todo_text(&todo_id, &text)
 }
 
-/// Move a to-do item between spaces (use space_id 0 for unassigned).
+/// Update the subject of an existing to-do item.
 #[tauri::command]
-pub fn move_space_todo(from_space_id: i64, to_space_id: i64, todo_id: String) -> Result<(), String> {
-    log::info!("[cmd] move_space_todo: from={}, to={}, todo_id='{}'", from_space_id, to_space_id, todo_id);
-    storage::move_todo(from_space_id, to_space_id, &todo_id)
+pub fn update_todo_subject(todo_id: String, subject: String) -> Result<(), String> {
+    log::info!("[cmd] update_todo_subject: todo_id='{}', subject='{}'", todo_id, subject);
+    storage::update_todo_subject(&todo_id, &subject)
+}
+
+/// Move a to-do item to a different space (null = unassign).
+#[tauri::command]
+pub fn move_todo(todo_id: String, to_space_id: Option<i64>) -> Result<(), String> {
+    log::info!("[cmd] move_todo: todo_id='{}', to={:?}", todo_id, to_space_id);
+    storage::move_todo(&todo_id, to_space_id)
 }
 
 // ---------------------------------------------------------------------------
@@ -500,6 +538,21 @@ fn build_state_payload() -> Option<SpaceStatePayload> {
             log::info!("[state] Pruning stale collapsed spaceId: {}", id);
             stored.collapsed_by_space_id.remove(id);
         }
+
+        // Unassign todos whose space no longer exists.
+        // last_assigned_to is already set, so the user retains context.
+        for todo in &mut stored.todos {
+            if let Some(sid) = todo.space_id {
+                if !live_space_ids.contains(&sid) {
+                    log::info!(
+                        "[state] Orphaning todo '{}' from stale space {} (was '{}')",
+                        todo.id, sid, todo.last_assigned_to.as_deref().unwrap_or(""),
+                    );
+                    todo.space_id = None;
+                }
+            }
+        }
+
         let _ = storage::save(&stored);
     }
 

@@ -70,7 +70,7 @@ export function SettingsWindow() {
         <span
           data-tauri-drag-region
           className="font-semibold flex-1"
-          style={{ color: "var(--text-primary)", fontSize: "13px" }}
+          style={{ color: "var(--text-primary)", fontSize: "13px", paddingLeft: "6px" }}
         >
           Settings
         </span>
@@ -331,7 +331,7 @@ export function SettingsWindow() {
               color: "var(--text-muted)",
               fontSize: "10px",
               wordBreak: "break-all",
-              paddingLeft: "4px",
+              paddingLeft: "6px",
             }}
           >
             Logging to: {state.logFilePath}
@@ -341,7 +341,7 @@ export function SettingsWindow() {
         {!state.enableLogging && (
           <div
             className="text-xs mb-2"
-            style={{ color: "var(--text-muted)", fontSize: "10px", paddingLeft: "4px" }}
+            style={{ color: "var(--text-muted)", fontSize: "10px", paddingLeft: "6px" }}
           >
             Writes logs to ~/Desktop/Swavigator_Logs/ for troubleshooting.
           </div>
@@ -350,7 +350,7 @@ export function SettingsWindow() {
         {/* Hints */}
         <div
           className="mt-4 text-xs"
-          style={{ color: "var(--text-muted)", fontSize: "10px" }}
+          style={{ color: "var(--text-muted)", fontSize: "10px", paddingLeft: "6px" }}
         >
           Click ✎ next to a space name in the main panel to rename it.
         </div>

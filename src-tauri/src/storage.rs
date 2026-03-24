@@ -53,17 +53,26 @@ pub struct AppGroup {
     pub collapsed: bool,
 }
 
-/// A single to-do item within a space's checklist.
+/// A single to-do item.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TodoItem {
     /// Unique identifier (UUID v4).
     pub id: String,
-    /// To-do text.
+    /// Short plain-text subject line (displayed as a header).
+    #[serde(default)]
+    pub subject: String,
+    /// To-do text (HTML from the rich-text editor).
     pub text: String,
     /// Whether this item has been completed.
     #[serde(default)]
     pub completed: bool,
+    /// The macOS space ID this todo is assigned to, or None if unassigned.
+    #[serde(default)]
+    pub space_id: Option<i64>,
+    /// Display name of the space at the time of last assignment or rename.
+    #[serde(default)]
+    pub last_assigned_to: Option<String>,
 }
 
 /// On-disk format for persisted Swavigator data.
@@ -100,8 +109,13 @@ pub struct StoredData {
     #[serde(default)]
     pub app_tray_visible: bool,
 
-    /// Per-space to-do checklists keyed by spaceId.
+    /// Flat list of all to-do items. Each item carries its own `space_id`.
     #[serde(default)]
+    pub todos: Vec<TodoItem>,
+
+    /// [LEGACY] To-do checklists keyed by spaceId.
+    /// Retained only for migration from the old format; not used at runtime.
+    #[serde(default, skip_serializing)]
     pub todos_by_space_id: HashMap<i64, Vec<TodoItem>>,
 }
 
@@ -374,6 +388,25 @@ pub fn load() -> StoredData {
         }
     }
 
+    // Migrate legacy todos_by_space_id → flat todos vec.
+    if !stored.todos_by_space_id.is_empty() {
+        log::info!(
+            "[storage] Migrating {} todo buckets from todos_by_space_id to flat todos list",
+            stored.todos_by_space_id.len()
+        );
+        for (space_id, items) in std::mem::take(&mut stored.todos_by_space_id) {
+            let label = stored.labels_by_space_id.get(&space_id).cloned();
+            for mut item in items {
+                item.space_id = if space_id == 0 { None } else { Some(space_id) };
+                item.last_assigned_to = label.clone();
+                stored.todos.push(item);
+            }
+        }
+        if let Err(e) = save(&stored) {
+            log::warn!("[storage] Failed to save migrated todos: {}", e);
+        }
+    }
+
     stored
 }
 
@@ -432,6 +465,14 @@ pub fn set_label_by_id(space_id: i64, label: &str) -> Result<(), String> {
             space_id
         );
         data.labels_by_space_id.insert(space_id, label.to_string());
+    }
+
+    // Sync lastAssignedTo on all todos currently assigned to this space.
+    let new_label = if label.is_empty() { None } else { Some(label.to_string()) };
+    for todo in &mut data.todos {
+        if todo.space_id == Some(space_id) {
+            todo.last_assigned_to = new_label.clone();
+        }
     }
 
     log::info!(
@@ -653,47 +694,45 @@ pub fn set_app_tray_visible(visible: bool) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
-// Space to-do helpers
+// To-do helpers
 // ---------------------------------------------------------------------------
 
 /// Get all to-do items for a specific space.
 pub fn get_todos_by_space_id(space_id: i64) -> Vec<TodoItem> {
     load()
-        .todos_by_space_id
-        .get(&space_id)
-        .cloned()
-        .unwrap_or_default()
+        .todos
+        .into_iter()
+        .filter(|t| t.space_id == Some(space_id))
+        .collect()
 }
 
-/// Get all to-dos across all spaces, keyed by spaceId.
-pub fn get_all_todos() -> HashMap<i64, Vec<TodoItem>> {
-    load().todos_by_space_id
+/// Get all to-dos as a flat list.
+pub fn get_all_todos() -> Vec<TodoItem> {
+    load().todos
 }
 
-/// Add a new to-do item to a space. Returns the created item.
-pub fn add_todo(space_id: i64, text: &str) -> Result<TodoItem, String> {
+/// Add a new to-do item. Returns the created item.
+pub fn add_todo(space_id: Option<i64>, subject: &str, text: &str) -> Result<TodoItem, String> {
     let mut data = load();
+    let label = space_id.and_then(|sid| data.labels_by_space_id.get(&sid).cloned());
     let item = TodoItem {
         id: uuid::Uuid::new_v4().to_string(),
+        subject: subject.to_string(),
         text: text.to_string(),
         completed: false,
+        space_id,
+        last_assigned_to: label,
     };
-    data.todos_by_space_id
-        .entry(space_id)
-        .or_default()
-        .push(item.clone());
+    data.todos.push(item.clone());
     save(&data)?;
     Ok(item)
 }
 
 /// Toggle the completed state of a to-do item.
-pub fn toggle_todo(space_id: i64, todo_id: &str) -> Result<(), String> {
+pub fn toggle_todo(todo_id: &str) -> Result<(), String> {
     let mut data = load();
-    let todos = data
-        .todos_by_space_id
-        .get_mut(&space_id)
-        .ok_or_else(|| format!("No to-dos for space {}.", space_id))?;
-    let item = todos
+    let item = data
+        .todos
         .iter_mut()
         .find(|t| t.id == todo_id)
         .ok_or_else(|| format!("To-do '{}' not found.", todo_id))?;
@@ -701,32 +740,22 @@ pub fn toggle_todo(space_id: i64, todo_id: &str) -> Result<(), String> {
     save(&data)
 }
 
-/// Delete a to-do item from a space.
-pub fn delete_todo(space_id: i64, todo_id: &str) -> Result<(), String> {
+/// Delete a to-do item.
+pub fn delete_todo(todo_id: &str) -> Result<(), String> {
     let mut data = load();
-    let todos = data
-        .todos_by_space_id
-        .get_mut(&space_id)
-        .ok_or_else(|| format!("No to-dos for space {}.", space_id))?;
-    let before = todos.len();
-    todos.retain(|t| t.id != todo_id);
-    if todos.len() == before {
+    let before = data.todos.len();
+    data.todos.retain(|t| t.id != todo_id);
+    if data.todos.len() == before {
         return Err(format!("To-do '{}' not found.", todo_id));
-    }
-    if todos.is_empty() {
-        data.todos_by_space_id.remove(&space_id);
     }
     save(&data)
 }
 
 /// Update the text of an existing to-do item.
-pub fn update_todo_text(space_id: i64, todo_id: &str, text: &str) -> Result<(), String> {
+pub fn update_todo_text(todo_id: &str, text: &str) -> Result<(), String> {
     let mut data = load();
-    let todos = data
-        .todos_by_space_id
-        .get_mut(&space_id)
-        .ok_or_else(|| format!("No to-dos for space {}.", space_id))?;
-    let item = todos
+    let item = data
+        .todos
         .iter_mut()
         .find(|t| t.id == todo_id)
         .ok_or_else(|| format!("To-do '{}' not found.", todo_id))?;
@@ -734,21 +763,73 @@ pub fn update_todo_text(space_id: i64, todo_id: &str, text: &str) -> Result<(), 
     save(&data)
 }
 
-/// Move a to-do item from one space (or unassigned, id=0) to another.
-pub fn move_todo(from_space_id: i64, to_space_id: i64, todo_id: &str) -> Result<(), String> {
+/// Update the subject of an existing to-do item.
+pub fn update_todo_subject(todo_id: &str, subject: &str) -> Result<(), String> {
     let mut data = load();
-    let from_todos = data
-        .todos_by_space_id
-        .get_mut(&from_space_id)
-        .ok_or_else(|| format!("No to-dos for space {}.", from_space_id))?;
-    let idx = from_todos
-        .iter()
-        .position(|t| t.id == todo_id)
-        .ok_or_else(|| format!("To-do '{}' not found in space {}.", todo_id, from_space_id))?;
-    let item = from_todos.remove(idx);
-    data.todos_by_space_id
-        .entry(to_space_id)
-        .or_default()
-        .push(item);
+    let item = data
+        .todos
+        .iter_mut()
+        .find(|t| t.id == todo_id)
+        .ok_or_else(|| format!("To-do '{}' not found.", todo_id))?;
+    item.subject = subject.to_string();
     save(&data)
+}
+
+/// Move a to-do item to a different space (or unassign with None).
+pub fn move_todo(todo_id: &str, to_space_id: Option<i64>) -> Result<(), String> {
+    let mut data = load();
+    let label = to_space_id.and_then(|sid| data.labels_by_space_id.get(&sid).cloned());
+    let item = data
+        .todos
+        .iter_mut()
+        .find(|t| t.id == todo_id)
+        .ok_or_else(|| format!("To-do '{}' not found.", todo_id))?;
+    item.space_id = to_space_id;
+    item.last_assigned_to = label;
+    save(&data)
+}
+
+/// Update `last_assigned_to` on all todos assigned to the given space.
+/// Called when a space is renamed.
+pub fn sync_todo_labels(space_id: i64, label: &str) {
+    let mut data = load();
+    let new_label = if label.is_empty() { None } else { Some(label.to_string()) };
+    let mut changed = false;
+    for todo in &mut data.todos {
+        if todo.space_id == Some(space_id) && todo.last_assigned_to != new_label {
+            todo.last_assigned_to = new_label.clone();
+            changed = true;
+        }
+    }
+    if changed {
+        let _ = save(&data);
+    }
+}
+
+/// Unassign all todos whose space_id matches any of the given stale IDs.
+/// Their `last_assigned_to` is preserved for reference.
+pub fn orphan_todos_for_stale_spaces(stale_ids: &[i64]) {
+    if stale_ids.is_empty() {
+        return;
+    }
+    let mut data = load();
+    let stale_set: std::collections::HashSet<i64> = stale_ids.iter().copied().collect();
+    let mut changed = false;
+    for todo in &mut data.todos {
+        if let Some(sid) = todo.space_id {
+            if stale_set.contains(&sid) {
+                log::info!(
+                    "[storage] Orphaning todo '{}' from stale space {} (was '{}')",
+                    todo.id,
+                    sid,
+                    todo.last_assigned_to.as_deref().unwrap_or(""),
+                );
+                todo.space_id = None;
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        let _ = save(&data);
+    }
 }

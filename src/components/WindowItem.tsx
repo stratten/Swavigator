@@ -213,7 +213,7 @@ export function WindowItem({ window, viewMode, iconSrc, fontSize = 12, grouped =
             hasDistinctTitle && (
               <span
                 className="truncate flex-1 min-w-0"
-                style={{ color: "var(--text-muted)" }}
+                style={{ color: "var(--text-secondary)" }}
               >
                 — {window.title}
               </span>
@@ -324,7 +324,7 @@ export function WindowItem({ window, viewMode, iconSrc, fontSize = 12, grouped =
           {window.title && window.title !== window.appName && (
             <span
               className="truncate block"
-              style={{ color: "var(--text-muted)" }}
+              style={{ color: "var(--text-secondary)" }}
             >
               {window.title}
             </span>

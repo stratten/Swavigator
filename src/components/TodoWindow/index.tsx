@@ -1,11 +1,14 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit, listen } from "@tauri-apps/api/event";
-import type { TodoItem } from "../../lib/types";
+import type { TodoItem, SpaceStatePayload } from "../../lib/types";
 import { RichTextEditor } from "./RichTextEditor";
 
-const UNASSIGNED_SPACE_ID = 0;
+/** Format: "Desktop X" or "Desktop X – Label" when custom name exists. */
+function fmtSpaceLabel(spaceIndex: number, label: string): string {
+  return label ? `Desktop ${spaceIndex} \u2013 ${label}` : `Desktop ${spaceIndex}`;
+}
 
 /** Parse URL query params to determine mode. */
 function getParams(): { spaceId: number | null; spaceName: string } {
@@ -23,15 +26,27 @@ function isHtmlEmpty(html: string): boolean {
   return text.length === 0;
 }
 
+/** Generate a default subject line: "[spaceLabel] – Mar 20, 2:34 PM". */
+function defaultSubject(spaceLabel: string | null | undefined): string {
+  const ts = new Date().toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return spaceLabel ? `${spaceLabel} \u2013 ${ts}` : `Unassigned \u2013 ${ts}`;
+}
+
 interface SpaceTodoSection {
-  spaceId: number;
+  key: string;
+  spaceId: number | null;
   label: string;
   todos: TodoItem[];
   collapsed: boolean;
 }
 
 interface SpaceOption {
-  id: number;
+  id: number | null;
   label: string;
 }
 
@@ -39,153 +54,244 @@ export function TodoWindow() {
   const { spaceId, spaceName } = getParams();
   const isOverview = spaceId === null;
 
-  const [todos, setTodos] = useState<TodoItem[]>([]);
-  const [sections, setSections] = useState<SpaceTodoSection[]>([]);
-  const [newHtml, setNewHtml] = useState("");
+  const [allTodos, setAllTodos] = useState<TodoItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
+  const [editingSubjectId, setEditingSubjectId] = useState<string | null>(null);
+  const [subjectDraft, setSubjectDraft] = useState("");
+  const [newHtml, setNewHtml] = useState("");
   const addEditorKeyRef = useRef(0);
 
-  // Per-space tab state.
   const [activeTab, setActiveTab] = useState<"open" | "done">("open");
-  // IDs of todos that were just toggled — kept visible briefly before moving tabs.
   const [transitioning, setTransitioning] = useState<Set<string>>(new Set());
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
 
-  // Available spaces for the move-to dropdown (overview mode only).
   const [spaceOptions, setSpaceOptions] = useState<SpaceOption[]>([]);
-
-  const loadSpaceOptions = useCallback(async () => {
-    if (!isOverview) return;
-    try {
-      const state: { spaces: { spaceId: number; label: string; spaceIndex: number }[] } =
-        await invoke("get_space_state");
-      const opts: SpaceOption[] = state.spaces.map((s) => ({
-        id: s.spaceId,
-        label: s.label || `Desktop ${s.spaceIndex}`,
-      }));
-      setSpaceOptions(opts);
-    } catch {
-      // Silently ignore — non-critical
-    }
-  }, [isOverview]);
 
   const loadTodos = useCallback(async () => {
     if (isOverview) {
-      const allTodos: Record<string, TodoItem[]> = await invoke("get_all_space_todos");
-      let spaceState: { spaces: { spaceId: number; label: string; spaceIndex: number }[] } | null = null;
-      try {
-        spaceState = await invoke("get_space_state");
-      } catch { /* ignore */ }
-
-      const secs: SpaceTodoSection[] = [];
-      for (const [id, items] of Object.entries(allTodos)) {
-        if (items.length === 0) continue;
-        const numId = Number(id);
-        if (numId === UNASSIGNED_SPACE_ID) {
-          secs.push({ spaceId: UNASSIGNED_SPACE_ID, label: "Unassigned", todos: items, collapsed: false });
-        } else {
-          const spaceInfo = spaceState?.spaces.find((s) => s.spaceId === numId);
-          const label = spaceInfo?.label || `Space ${spaceInfo?.spaceIndex ?? id}`;
-          secs.push({ spaceId: numId, label, todos: items, collapsed: false });
-        }
-      }
-      // Sort: Unassigned first, then alphabetical by label.
-      secs.sort((a, b) => {
-        if (a.spaceId === UNASSIGNED_SPACE_ID) return -1;
-        if (b.spaceId === UNASSIGNED_SPACE_ID) return 1;
-        return a.label.localeCompare(b.label);
-      });
-      setSections(secs);
+      const todos = await invoke<TodoItem[]>("get_all_todos");
+      setAllTodos(todos);
     } else {
-      const items: TodoItem[] = await invoke("get_space_todos", { spaceId });
-      setTodos(items);
+      const todos = await invoke<TodoItem[]>("get_space_todos", { spaceId });
+      setAllTodos(todos);
     }
     setLoaded(true);
   }, [isOverview, spaceId]);
 
-  useEffect(() => {
-    loadTodos();
-    loadSpaceOptions();
-  }, [loadTodos, loadSpaceOptions]);
+  useEffect(() => { loadTodos(); }, [loadTodos]);
 
   useEffect(() => {
-    const unlisten = listen("todos-changed", () => {
-      loadTodos();
-    });
-    return () => {
-      unlisten.then((fn) => fn());
-    };
+    const unlisten = listen("todos-changed", () => { loadTodos(); });
+    return () => { unlisten.then((fn) => fn()); };
   }, [loadTodos]);
 
-  const notifyChange = useCallback(() => {
-    emit("todos-changed");
+  // Seed space options on mount (lightweight, no window enumeration) and keep
+  // them in sync via the polling loop the main panel already drives.
+  // Loaded in both overview and per-space modes so the space dropdown works everywhere.
+  useEffect(() => {
+    invoke<{ spaceId: number; spaceIndex: number; label: string }[]>("get_space_list")
+      .then((list) => {
+        setSpaceOptions(
+          list.map((s) => ({ id: s.spaceId, label: fmtSpaceLabel(s.spaceIndex, s.label) })),
+        );
+      })
+      .catch(() => {});
+
+    const unlisten = listen<SpaceStatePayload>("space-state-update", (e) => {
+      setSpaceOptions(
+        e.payload.spaces.map((s) => ({ id: s.spaceId, label: fmtSpaceLabel(s.spaceIndex, s.label) })),
+      );
+    });
+    return () => { unlisten.then((fn) => fn()); };
   }, []);
 
-  const handleAdd = useCallback(async (targetSpaceId?: number) => {
+  const notifyChange = useCallback(() => { emit("todos-changed"); }, []);
+
+  // Build a lookup from spaceId → label for active spaces.
+  const spaceLabelMap = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const opt of spaceOptions) {
+      if (opt.id != null) map.set(opt.id, opt.label);
+    }
+    return map;
+  }, [spaceOptions]);
+
+  // Build dropdown options: "Unassigned" + active spaces.
+  const moveOptions: SpaceOption[] = useMemo(
+    () => [{ id: null, label: "Unassigned" }, ...spaceOptions],
+    [spaceOptions],
+  );
+
+  // ── Per-space mode filtering ──────────────────────────────────────────
+
+  const perSpaceTodos = useMemo(
+    () => (isOverview ? [] : allTodos),
+    [isOverview, allTodos],
+  );
+
+  const incompleteSingle = useMemo(
+    () => perSpaceTodos.filter((t) => !t.completed).length,
+    [perSpaceTodos],
+  );
+  const completeSingle = useMemo(
+    () => perSpaceTodos.filter((t) => t.completed).length,
+    [perSpaceTodos],
+  );
+
+  const visiblePerSpaceTodos = useMemo(
+    () =>
+      perSpaceTodos.filter((t) => {
+        if (transitioning.has(t.id)) return true;
+        return activeTab === "open" ? !t.completed : t.completed;
+      }),
+    [perSpaceTodos, activeTab, transitioning],
+  );
+
+  // ── Overview mode sections ────────────────────────────────────────────
+
+  const overviewTodos = useMemo(
+    () => (isOverview ? allTodos : []),
+    [isOverview, allTodos],
+  );
+
+  const incompleteOverview = useMemo(
+    () => overviewTodos.filter((t) => !t.completed).length,
+    [overviewTodos],
+  );
+  const completeOverview = useMemo(
+    () => overviewTodos.filter((t) => t.completed).length,
+    [overviewTodos],
+  );
+
+  const sections: SpaceTodoSection[] = useMemo(() => {
+    if (!isOverview) return [];
+
+    const filtered = overviewTodos.filter((t) => {
+      if (transitioning.has(t.id)) return true;
+      return activeTab === "open" ? !t.completed : t.completed;
+    });
+
+    const grouped = new Map<string, { spaceId: number | null; label: string; todos: TodoItem[] }>();
+
+    for (const todo of filtered) {
+      let key: string;
+      let label: string;
+
+      if (todo.spaceId != null) {
+        key = `space-${todo.spaceId}`;
+        const liveLabel = spaceLabelMap.get(todo.spaceId);
+        if (liveLabel) {
+          label = liveLabel;
+        } else {
+          label = todo.lastAssignedTo
+            ? `${todo.lastAssignedTo} (removed)`
+            : `Space ${todo.spaceId}`;
+        }
+      } else {
+        const origin = todo.lastAssignedTo || "Unassigned";
+        key = `unassigned-${origin}`;
+        label = origin === "Unassigned" ? "Unassigned" : `${origin} (removed)`;
+      }
+
+      const existing = grouped.get(key);
+      if (existing) {
+        existing.todos.push(todo);
+      } else {
+        grouped.set(key, { spaceId: todo.spaceId ?? null, label, todos: [todo] });
+      }
+    }
+
+    const secs: SpaceTodoSection[] = [];
+    for (const [key, val] of grouped) {
+      secs.push({
+        key,
+        spaceId: val.spaceId,
+        label: val.label,
+        todos: val.todos,
+        collapsed: collapsedSections.has(key),
+      });
+    }
+
+    secs.sort((a, b) => {
+      if (a.spaceId == null && b.spaceId != null) return 1;
+      if (a.spaceId != null && b.spaceId == null) return -1;
+      return a.label.localeCompare(b.label);
+    });
+
+    return secs;
+  }, [isOverview, overviewTodos, activeTab, transitioning, spaceLabelMap, collapsedSections]);
+
+  // ── Handlers ──────────────────────────────────────────────────────────
+
+  const handleAdd = useCallback(async (targetSpaceId?: number | null) => {
     if (isHtmlEmpty(newHtml)) return;
-    const sid = targetSpaceId ?? spaceId ?? UNASSIGNED_SPACE_ID;
-    await invoke("add_space_todo", { spaceId: sid, text: newHtml });
+    const sid = targetSpaceId !== undefined ? targetSpaceId : spaceId;
+    const label = sid != null ? (spaceLabelMap.get(sid) ?? spaceName) : null;
+    const subject = defaultSubject(label || null);
+    await invoke("add_todo", { spaceId: sid, subject, text: newHtml });
     setNewHtml("");
     addEditorKeyRef.current += 1;
     await loadTodos();
     notifyChange();
-  }, [newHtml, spaceId, loadTodos, notifyChange]);
+  }, [newHtml, spaceId, spaceName, spaceLabelMap, loadTodos, notifyChange]);
 
-  const handleToggle = useCallback(async (sid: number, todoId: string) => {
-    await invoke("toggle_space_todo", { spaceId: sid, todoId });
+  const handleToggle = useCallback(async (todoId: string) => {
+    await invoke("toggle_todo", { todoId });
     notifyChange();
+    setTransitioning((prev) => new Set(prev).add(todoId));
+    await loadTodos();
+    setTimeout(() => {
+      setTransitioning((prev) => {
+        const next = new Set(prev);
+        next.delete(todoId);
+        return next;
+      });
+    }, 600);
+  }, [loadTodos, notifyChange]);
 
-    if (!isOverview) {
-      // Mark the item as transitioning so it stays visible briefly.
-      setTransitioning((prev) => new Set(prev).add(todoId));
-      // Reload immediately so the checkbox reflects the new state.
-      await loadTodos();
-      // After a short delay, remove from transitioning (it disappears from the current tab).
-      setTimeout(() => {
-        setTransitioning((prev) => {
-          const next = new Set(prev);
-          next.delete(todoId);
-          return next;
-        });
-      }, 600);
-    } else {
-      await loadTodos();
-    }
-  }, [isOverview, loadTodos, notifyChange]);
-
-  const handleDelete = useCallback(async (sid: number, todoId: string) => {
-    await invoke("delete_space_todo", { spaceId: sid, todoId });
+  const handleDelete = useCallback(async (todoId: string) => {
+    await invoke("delete_todo", { todoId });
     await loadTodos();
     notifyChange();
   }, [loadTodos, notifyChange]);
 
-  const handleUpdateText = useCallback(async (sid: number, todoId: string, html: string) => {
+  const handleUpdateText = useCallback(async (todoId: string, html: string) => {
     if (isHtmlEmpty(html)) return;
-    await invoke("update_space_todo_text", { spaceId: sid, todoId, text: html });
+    await invoke("update_todo_text", { todoId, text: html });
     setEditingId(null);
     await loadTodos();
     notifyChange();
   }, [loadTodos, notifyChange]);
 
-  const handleMoveTodo = useCallback(async (fromSpaceId: number, toSpaceId: number, todoId: string) => {
-    if (fromSpaceId === toSpaceId) return;
-    await invoke("move_space_todo", { fromSpaceId, toSpaceId, todoId });
+  const handleUpdateSubject = useCallback(async (todoId: string, subject: string) => {
+    const trimmed = subject.trim();
+    if (!trimmed) { setEditingSubjectId(null); return; }
+    await invoke("update_todo_subject", { todoId, subject: trimmed });
+    setEditingSubjectId(null);
     await loadTodos();
     notifyChange();
   }, [loadTodos, notifyChange]);
 
-  const handleClose = useCallback(() => {
-    getCurrentWindow().close();
+  const handleMoveTodo = useCallback(async (todoId: string, toSpaceId: number | null) => {
+    await invoke("move_todo", { todoId, toSpaceId });
+    await loadTodos();
+    notifyChange();
+  }, [loadTodos, notifyChange]);
+
+  const handleClose = useCallback(() => { getCurrentWindow().close(); }, []);
+
+  const toggleSectionCollapsed = useCallback((key: string) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   }, []);
 
-  const toggleSectionCollapsed = useCallback((sectionSpaceId: number) => {
-    setSections((prev) =>
-      prev.map((s) =>
-        s.spaceId === sectionSpaceId ? { ...s, collapsed: !s.collapsed } : s,
-      ),
-    );
-  }, []);
+  // ── Render ────────────────────────────────────────────────────────────
 
   if (!loaded) {
     return (
@@ -204,24 +310,6 @@ export function TodoWindow() {
   }
 
   const title = isOverview ? "All To-Dos" : `To-Dos — ${spaceName}`;
-
-  const incompleteSingle = todos.filter((t) => !t.completed).length;
-  const completeSingle = todos.filter((t) => t.completed).length;
-
-  // Per-space tab filtering: show items belonging to the active tab,
-  // plus any items that are transitioning (just toggled, fading out).
-  const visibleTodos = isOverview
-    ? todos
-    : todos.filter((t) => {
-        if (transitioning.has(t.id)) return true;
-        return activeTab === "open" ? !t.completed : t.completed;
-      });
-
-  // Build dropdown options: "Unassigned" + active spaces.
-  const moveOptions: SpaceOption[] = [
-    { id: UNASSIGNED_SPACE_ID, label: "Unassigned" },
-    ...spaceOptions,
-  ];
 
   return (
     <div
@@ -265,21 +353,69 @@ export function TodoWindow() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto" style={{ padding: "8px 12px" }}>
+        {/* Open / Done tabs (both overview and per-space) */}
+        <div
+          className="flex gap-0 flex-shrink-0"
+          style={{ marginBottom: "8px", borderBottom: "1px solid var(--panel-border)" }}
+        >
+          {(["open", "done"] as const).map((tab) => {
+            const isActive = activeTab === tab;
+            const count = isOverview
+              ? (tab === "open" ? incompleteOverview : completeOverview)
+              : (tab === "open" ? incompleteSingle : completeSingle);
+            return (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className="cursor-pointer"
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  borderBottom: isActive ? "2px solid var(--accent-blue)" : "2px solid transparent",
+                  color: isActive ? "var(--text-primary)" : "var(--text-muted)",
+                  fontSize: "12px",
+                  fontWeight: isActive ? 600 : 400,
+                  padding: "4px 12px 6px",
+                  transition: "color 0.15s, border-color 0.15s",
+                }}
+              >
+                {tab === "open" ? "Open" : "Done"}
+                {count > 0 && (
+                  <span
+                    style={{
+                      marginLeft: "5px",
+                      fontSize: "10px",
+                      color: isActive ? "var(--accent-blue)" : "var(--text-muted)",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
         {isOverview ? (
           sections.length === 0 ? (
             <div
-              className="flex items-center justify-center h-full"
-              style={{ color: "var(--text-muted)", fontSize: "12px" }}
+              className="flex items-center justify-center"
+              style={{ color: "var(--text-muted)", fontSize: "12px", padding: "24px 0" }}
             >
-              No to-dos yet. Add one below.
+              {activeTab === "open"
+                ? allTodos.length === 0
+                  ? "No to-dos yet. Add one below."
+                  : "All done!"
+                : "No completed to-dos."}
             </div>
           ) : (
             sections.map((section) => {
               const incomplete = section.todos.filter((t) => !t.completed).length;
               return (
-                <div key={section.spaceId} style={{ marginBottom: "12px" }}>
+                <div key={section.key} style={{ marginBottom: "12px" }}>
                   <button
-                    onClick={() => toggleSectionCollapsed(section.spaceId)}
+                    onClick={() => toggleSectionCollapsed(section.key)}
                     className="flex items-center gap-1 w-full cursor-pointer"
                     style={{
                       background: "transparent",
@@ -313,7 +449,7 @@ export function TodoWindow() {
                   </button>
                   {!section.collapsed && (
                     <div style={{ paddingLeft: "14px" }}>
-                      {renderTodoList(section.todos, section.spaceId)}
+                      {renderTodoList(section.todos)}
                     </div>
                   )}
                 </div>
@@ -322,80 +458,28 @@ export function TodoWindow() {
           )
         ) : (
           <>
-            {/* Open / Done tabs */}
-            <div
-              className="flex gap-0 flex-shrink-0"
-              style={{
-                marginBottom: "8px",
-                borderBottom: "1px solid var(--panel-border)",
-              }}
-            >
-              {(["open", "done"] as const).map((tab) => {
-                const isActive = activeTab === tab;
-                const count = tab === "open" ? incompleteSingle : completeSingle;
-                return (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveTab(tab)}
-                    className="cursor-pointer"
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      borderBottom: isActive ? "2px solid var(--accent-blue)" : "2px solid transparent",
-                      color: isActive ? "var(--text-primary)" : "var(--text-muted)",
-                      fontSize: "12px",
-                      fontWeight: isActive ? 600 : 400,
-                      padding: "4px 12px 6px",
-                      transition: "color 0.15s, border-color 0.15s",
-                    }}
-                  >
-                    {tab === "open" ? "Open" : "Done"}
-                    {count > 0 && (
-                      <span
-                        style={{
-                          marginLeft: "5px",
-                          fontSize: "10px",
-                          color: isActive ? "var(--accent-blue)" : "var(--text-muted)",
-                          fontWeight: 600,
-                        }}
-                      >
-                        {count}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            {visibleTodos.length === 0 && (
+            {visiblePerSpaceTodos.length === 0 && (
               <div
                 className="flex items-center justify-center"
-                style={{
-                  color: "var(--text-muted)",
-                  fontSize: "12px",
-                  padding: "24px 0",
-                }}
+                style={{ color: "var(--text-muted)", fontSize: "12px", padding: "24px 0" }}
               >
                 {activeTab === "open"
-                  ? todos.length === 0
+                  ? allTodos.length === 0
                     ? "No to-dos yet. Add one below."
                     : "All done!"
                   : "No completed to-dos."}
               </div>
             )}
-            {renderTodoList(visibleTodos, spaceId!)}
+            {renderTodoList(visiblePerSpaceTodos)}
           </>
         )}
       </div>
 
-      {/* Add editor — shown on the Open tab (per-space) or always (overview) */}
-      {(isOverview || activeTab === "open") && (
+      {/* Add editor — shown on the Open tab */}
+      {activeTab === "open" && (
         <div
           className="flex-shrink-0 flex flex-col gap-2"
-          style={{
-            padding: "8px 12px",
-            borderTop: "1px solid var(--panel-border)",
-          }}
+          style={{ padding: "8px 12px", borderTop: "1px solid var(--panel-border)" }}
         >
           <RichTextEditor
             key={addEditorKeyRef.current}
@@ -427,113 +511,163 @@ export function TodoWindow() {
     </div>
   );
 
-  function renderTodoList(items: TodoItem[], sid: number) {
+  function renderTodoList(items: TodoItem[]) {
     return items.map((todo) => {
       const isFading = transitioning.has(todo.id);
+      const displaySubject = todo.subject || todo.lastAssignedTo || "Untitled";
+
       return (
-      <div
-        key={todo.id}
-        className="flex items-start gap-2"
-        style={{
-          padding: "4px 0",
-          borderBottom: "1px solid rgba(255,255,255,0.04)",
-          opacity: isFading ? 0.4 : 1,
-          transition: "opacity 0.4s ease",
-        }}
-      >
-        <input
-          type="checkbox"
-          checked={todo.completed}
-          onChange={() => handleToggle(sid, todo.id)}
+        <div
+          key={todo.id}
           style={{
-            accentColor: "var(--accent-blue)",
-            cursor: "pointer",
-            flexShrink: 0,
-            marginTop: "3px",
+            padding: "6px 0",
+            borderBottom: "1px solid rgba(255,255,255,0.04)",
+            opacity: isFading ? 0.4 : 1,
+            transition: "opacity 0.4s ease",
           }}
-        />
-        <div className="flex-1 min-w-0">
-          {editingId === todo.id ? (
-            <RichTextEditor
-              content={editDraft}
-              onUpdate={setEditDraft}
-              autofocus
-              placeholder="Cmd+Enter to save"
-              onSubmit={() => handleUpdateText(sid, todo.id, editDraft)}
-              onCancel={() => setEditingId(null)}
-              onBlur={() => handleUpdateText(sid, todo.id, editDraft)}
-            />
-          ) : (
-            <div
-              className="cursor-pointer todo-display"
-              onDoubleClick={() => {
-                setEditingId(todo.id);
-                setEditDraft(todo.text);
-              }}
-              style={{
-                color: todo.completed ? "var(--text-muted)" : "var(--text-primary)",
-                textDecoration: todo.completed ? "line-through" : "none",
-                fontSize: "12px",
-                lineHeight: 1.5,
-                userSelect: "none",
-                wordBreak: "break-word",
-              }}
-              title="Double-click to edit"
-              dangerouslySetInnerHTML={{ __html: todo.text }}
-            />
-          )}
-          {/* Space assignment dropdown (overview mode only) */}
-          {isOverview && moveOptions.length > 1 && (
-            <select
-              value={sid}
-              onChange={(e) => handleMoveTodo(sid, Number(e.target.value), todo.id)}
-              style={{
-                background: "rgba(255,255,255,0.05)",
-                color: "var(--text-muted)",
-                border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: "3px",
-                fontSize: "9px",
-                padding: "1px 4px",
-                marginTop: "2px",
-                cursor: "pointer",
-                maxWidth: "140px",
-              }}
-              title="Move to another space"
-            >
-              {moveOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
-        <button
-          onClick={() => handleDelete(sid, todo.id)}
-          className="flex-shrink-0 cursor-pointer"
-          style={{
-            color: "var(--text-muted)",
-            background: "transparent",
-            border: "none",
-            fontSize: "13px",
-            lineHeight: 1,
-            padding: "2px",
-            opacity: 0.5,
-            marginTop: "2px",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.opacity = "1";
-            e.currentTarget.style.color = "#ef4444";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.opacity = "0.5";
-            e.currentTarget.style.color = "var(--text-muted)";
-          }}
-          title="Delete"
         >
-          ✕
-        </button>
-      </div>
+          {/* Subject header row */}
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={todo.completed}
+              onChange={() => handleToggle(todo.id)}
+              style={{
+                accentColor: "var(--accent-blue)",
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            />
+            {editingSubjectId === todo.id ? (
+              <input
+                type="text"
+                value={subjectDraft}
+                onChange={(e) => setSubjectDraft(e.target.value)}
+                onBlur={() => handleUpdateSubject(todo.id, subjectDraft)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleUpdateSubject(todo.id, subjectDraft);
+                  if (e.key === "Escape") setEditingSubjectId(null);
+                }}
+                autoFocus
+                className="flex-1 min-w-0"
+                style={{
+                  color: "var(--text-primary)",
+                  background: "rgba(63, 63, 70, 0.6)",
+                  border: "1px solid var(--accent-blue)",
+                  borderRadius: "3px",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  padding: "1px 4px",
+                  outline: "none",
+                }}
+              />
+            ) : (
+              <span
+                className="flex-1 min-w-0 truncate cursor-pointer"
+                onDoubleClick={() => {
+                  setEditingSubjectId(todo.id);
+                  setSubjectDraft(todo.subject || displaySubject);
+                }}
+                style={{
+                  color: todo.completed ? "var(--text-muted)" : "var(--text-primary)",
+                  textDecoration: todo.completed ? "line-through" : "none",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  userSelect: "none",
+                  fontStyle: todo.subject ? "normal" : "italic",
+                }}
+                title="Double-click to edit subject"
+              >
+                {displaySubject}
+              </span>
+            )}
+            <select
+              value={spaceOptions.length === 0 ? "__loading__" : (todo.spaceId ?? "null")}
+              disabled={spaceOptions.length === 0}
+              onChange={(e) => {
+                const val = e.target.value;
+                handleMoveTodo(todo.id, val === "null" ? null : Number(val));
+              }}
+              className="view-mode-select"
+              style={{
+                fontSize: "9px",
+                padding: "1px 18px 1px 4px",
+                maxWidth: "140px",
+                flexShrink: 0,
+                opacity: spaceOptions.length === 0 ? 0.5 : 1,
+              }}
+              title={spaceOptions.length === 0 ? "Loading spaces…" : "Move to another space"}
+            >
+              {spaceOptions.length === 0 ? (
+                <option value="__loading__">Loading…</option>
+              ) : (
+                moveOptions.map((opt) => (
+                  <option key={opt.id ?? "null"} value={opt.id ?? "null"}>
+                    {opt.label}
+                  </option>
+                ))
+              )}
+            </select>
+            <button
+              onClick={() => handleDelete(todo.id)}
+              className="flex-shrink-0 cursor-pointer"
+              style={{
+                color: "var(--text-muted)",
+                background: "transparent",
+                border: "none",
+                fontSize: "13px",
+                lineHeight: 1,
+                padding: "2px",
+                opacity: 0.5,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.opacity = "1";
+                e.currentTarget.style.color = "#ef4444";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.opacity = "0.5";
+                e.currentTarget.style.color = "var(--text-muted)";
+              }}
+              title="Delete"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Body text row */}
+          <div style={{ paddingLeft: "22px", marginTop: "2px" }}>
+            {editingId === todo.id ? (
+              <RichTextEditor
+                content={editDraft}
+                onUpdate={setEditDraft}
+                autofocus
+                placeholder="Cmd+Enter to save"
+                onSubmit={() => handleUpdateText(todo.id, editDraft)}
+                onCancel={() => setEditingId(null)}
+                onBlur={() => handleUpdateText(todo.id, editDraft)}
+              />
+            ) : (
+              <div
+                className="cursor-pointer todo-display"
+                onDoubleClick={() => {
+                  setEditingId(todo.id);
+                  setEditDraft(todo.text);
+                }}
+                style={{
+                  color: todo.completed ? "var(--text-muted)" : "var(--text-secondary, var(--text-primary))",
+                  textDecoration: todo.completed ? "line-through" : "none",
+                  fontSize: "11px",
+                  lineHeight: 1.5,
+                  userSelect: "none",
+                  wordBreak: "break-word",
+                  opacity: 0.85,
+                }}
+                title="Double-click to edit"
+                dangerouslySetInnerHTML={{ __html: todo.text }}
+              />
+            )}
+          </div>
+        </div>
       );
     });
   }

@@ -242,7 +242,6 @@ export function useDockMode(
       // blocking collapseToDock via isResizingRef.
       if (hadDockModeRef.current) {
         expandFromDock();
-        hadDockModeRef.current = false;
       }
       setIsDockExpanded(false);
       clearHideTimer();

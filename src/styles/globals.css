@@ -5,7 +5,7 @@
   --panel-bg: rgb(24, 24, 27);
   --panel-border: rgba(82, 82, 91, 0.85);
   --text-primary: #fafafa;
-  --text-secondary: #a1a1aa;
+  --text-secondary: #aaaab3;
   --text-muted: #71717a;
   --accent-blue: #3b82f6;
   --accent-green: #22c55e;
@@ -72,6 +72,7 @@ html, body {
   background: rgba(63, 63, 70, 0.6);
   color: var(--text-primary);
   border: 1px solid var(--panel-border);
+  padding-left: 4px;
   padding-right: 20px;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23a1a1aa' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;

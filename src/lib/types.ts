@@ -55,14 +55,20 @@ export type ViewMode = "compact" | "list" | "hybrid" | "count";
 // Space To-Dos
 // ---------------------------------------------------------------------------
 
-/** A single to-do item within a space's checklist. */
+/** A single to-do item. */
 export interface TodoItem {
   /** Unique identifier (UUID). */
   id: string;
-  /** To-do text. */
+  /** Short plain-text subject line (displayed as a header). */
+  subject: string;
+  /** To-do text (HTML). */
   text: string;
   /** Whether this item has been completed. */
   completed: boolean;
+  /** The macOS space ID this todo is assigned to, or null/undefined if unassigned. */
+  spaceId?: number | null;
+  /** Display name of the space at the time of last assignment or rename. */
+  lastAssignedTo?: string | null;
 }
 
 // ---------------------------------------------------------------------------

@@ -113,10 +113,13 @@ export function SpaceCard({ space, activeSpaceId, viewMode, appIcons, spaceNameF
     }
     const params = new URLSearchParams();
     params.set("spaceId", String(space.spaceId));
-    params.set("spaceName", space.label || `Space ${space.spaceIndex}`);
+    const displayName = space.label
+      ? `Desktop ${space.spaceIndex} \u2013 ${space.label}`
+      : `Desktop ${space.spaceIndex}`;
+    params.set("spaceName", displayName);
     new WebviewWindow(windowLabel, {
       url: `/?${params.toString()}`,
-      title: `To-Dos — ${space.label || `Space ${space.spaceIndex}`}`,
+      title: `To-Dos — ${displayName}`,
       width: 340,
       height: 420,
       resizable: true,

@@ -10,12 +10,15 @@ interface SectionHeaderProps {
 export function SectionHeader({ children, first }: SectionHeaderProps) {
   return (
     <div
-      className="text-xs font-semibold mb-2"
       style={{
-        color: "var(--text-muted)",
+        color: "var(--text-secondary)",
+        fontSize: "12.5px",
+        lineHeight: 1,
         letterSpacing: "0.05em",
-        marginTop: first ? 0 : "14px",
-        paddingBottom: "4px",
+        marginTop: first ? "4px" : "14px",
+        marginBottom: "2px",
+        paddingBottom: "1px",
+        paddingLeft: "6px",
         borderBottom: "1px solid var(--panel-border)",
       }}
     >
@@ -54,7 +57,7 @@ export function StyledSelect({ value, onChange, options }: StyledSelectProps) {
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="view-mode-select text-xs rounded px-1 py-0.5 outline-none cursor-pointer"
+      className="view-mode-select text-xs rounded px-2 py-0.5 outline-none cursor-pointer"
     >
       {options.map((opt) => (
         <option key={opt.value} value={opt.value}>
@@ -72,7 +75,7 @@ interface ToggleSwitchProps {
 
 export function ToggleSwitch({ checked, onChange }: ToggleSwitchProps) {
   return (
-    <label className="relative inline-flex items-center cursor-pointer">
+    <label className="inline-flex items-center cursor-pointer">
       <input
         type="checkbox"
         checked={checked}
@@ -80,7 +83,7 @@ export function ToggleSwitch({ checked, onChange }: ToggleSwitchProps) {
         className="sr-only peer"
       />
       <div
-        className="w-8 h-4 rounded-full"
+        className="relative w-8 h-4 rounded-full"
         style={{
           background: checked
             ? "var(--accent-color, #3b82f6)"
@@ -92,10 +95,10 @@ export function ToggleSwitch({ checked, onChange }: ToggleSwitchProps) {
           style={{
             width: "12px",
             height: "12px",
-            top: "2px",
-            left: "2px",
+            top: "1px",
+            left: "1px",
             background: "#fff",
-            transform: checked ? "translateX(16px)" : "translateX(0)",
+            transform: checked ? "translateX(14px)" : "translateX(0)",
           }}
         />
       </div>

@@ -226,11 +226,12 @@ export function FloatingPanel() {
 
   const loadTodoCounts = useCallback(async () => {
     try {
-      const allTodos: Record<string, TodoItem[]> = await invoke("get_all_space_todos");
+      const allTodos: TodoItem[] = await invoke("get_all_todos");
       const counts: Record<number, number> = {};
-      for (const [id, items] of Object.entries(allTodos)) {
-        const incomplete = items.filter((t) => !t.completed).length;
-        if (incomplete > 0) counts[Number(id)] = incomplete;
+      for (const todo of allTodos) {
+        if (!todo.completed && todo.spaceId != null) {
+          counts[todo.spaceId] = (counts[todo.spaceId] || 0) + 1;
+        }
       }
       setTodoCounts(counts);
     } catch {
