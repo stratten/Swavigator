@@ -1,3 +1,4 @@
+import React from "react";
 import { SpaceCard } from "../../SpaceCard";
 import { AppTray } from "../../AppTray";
 import { MinimizedSection } from "./MinimizedSection";
@@ -109,36 +110,55 @@ export function HorizontalLayout({
           </div>
         ) : (
           <>
-            {filteredSpaces.map((space, idx) => (
-              <div
-                key={`${space.displayId}:${space.spaceIndex}`}
-                className="flex-shrink-0 overflow-y-auto"
-                style={{
-                  minWidth: space.isCollapsed ? "auto" : "140px",
-                  maxWidth: "260px",
-                  borderRight:
-                    idx < filteredSpaces.length - 1 || minimizedWindows.length > 0
-                      ? "1px solid var(--panel-border)"
-                      : "none",
-                }}
-              >
-                <SpaceCard
-                  space={space}
-                  activeSpaceId={activeSpaceId}
-                  viewMode={viewMode}
-                  appIcons={appIcons}
-                  spaceNameFontSize={spaceNameFontSize}
-                  windowFontSize={windowFontSize}
-                  totalDisplays={totalDisplays}
-                  externalDisplayNumber={externalDisplayNumbers[space.displayId]}
-                  orientation="horizontal"
-                  todoCount={todoCounts[space.spaceId] ?? 0}
-                  enableTodos={enableTodos}
-                  onSetCollapsed={onSetSpaceCollapsed}
-                  onSetLabel={onSetSpaceLabel}
-                />
-              </div>
-            ))}
+            {filteredSpaces.map((space, idx) => {
+              const isDisplayBoundary =
+                totalDisplays > 1 &&
+                idx > 0 &&
+                space.displayId !== filteredSpaces[idx - 1].displayId;
+              const hasRightNeighbor =
+                idx < filteredSpaces.length - 1 || minimizedWindows.length > 0;
+
+              return (
+                <React.Fragment key={`${space.displayId}:${space.spaceIndex}`}>
+                  {isDisplayBoundary && (
+                    <div
+                      style={{
+                        width: "1px",
+                        background: "var(--panel-border)",
+                        margin: "6px 4px",
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
+                  <div
+                    className="flex-shrink-0 overflow-y-auto"
+                    style={{
+                      minWidth: space.isCollapsed ? "auto" : "140px",
+                      maxWidth: "260px",
+                      borderRight: hasRightNeighbor
+                        ? "1px solid var(--panel-border)"
+                        : "none",
+                    }}
+                  >
+                    <SpaceCard
+                      space={space}
+                      activeSpaceId={activeSpaceId}
+                      viewMode={viewMode}
+                      appIcons={appIcons}
+                      spaceNameFontSize={spaceNameFontSize}
+                      windowFontSize={windowFontSize}
+                      totalDisplays={totalDisplays}
+                      externalDisplayNumber={externalDisplayNumbers[space.displayId]}
+                      orientation="horizontal"
+                      todoCount={todoCounts[space.spaceId] ?? 0}
+                      enableTodos={enableTodos}
+                      onSetCollapsed={onSetSpaceCollapsed}
+                      onSetLabel={onSetSpaceLabel}
+                    />
+                  </div>
+                </React.Fragment>
+              );
+            })}
 
             {/* Minimized windows column */}
             {minimizedWindows.length > 0 && (

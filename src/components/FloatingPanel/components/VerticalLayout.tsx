@@ -1,3 +1,4 @@
+import React from "react";
 import { SpaceCard } from "../../SpaceCard";
 import { AppTray } from "../../AppTray";
 import { MinimizedSection } from "./MinimizedSection";
@@ -109,23 +110,40 @@ export function VerticalLayout({
           </div>
         ) : (
           <>
-            {filteredSpaces.map((space) => (
-              <SpaceCard
-                key={`${space.displayId}:${space.spaceIndex}`}
-                space={space}
-                activeSpaceId={activeSpaceId}
-                viewMode={viewMode}
-                appIcons={appIcons}
-                spaceNameFontSize={spaceNameFontSize}
-                windowFontSize={windowFontSize}
-                totalDisplays={totalDisplays}
-                externalDisplayNumber={externalDisplayNumbers[space.displayId]}
-                todoCount={todoCounts[space.spaceId] ?? 0}
-                enableTodos={enableTodos}
-                onSetCollapsed={onSetSpaceCollapsed}
-                onSetLabel={onSetSpaceLabel}
-              />
-            ))}
+            {filteredSpaces.map((space, idx) => {
+              const isDisplayBoundary =
+                totalDisplays > 1 &&
+                idx > 0 &&
+                space.displayId !== filteredSpaces[idx - 1].displayId;
+
+              return (
+                <React.Fragment key={`${space.displayId}:${space.spaceIndex}`}>
+                  {isDisplayBoundary && (
+                    <div
+                      style={{
+                        height: "1px",
+                        background: "var(--panel-border)",
+                        margin: "5px 6px",
+                      }}
+                    />
+                  )}
+                  <SpaceCard
+                    space={space}
+                    activeSpaceId={activeSpaceId}
+                    viewMode={viewMode}
+                    appIcons={appIcons}
+                    spaceNameFontSize={spaceNameFontSize}
+                    windowFontSize={windowFontSize}
+                    totalDisplays={totalDisplays}
+                    externalDisplayNumber={externalDisplayNumbers[space.displayId]}
+                    todoCount={todoCounts[space.spaceId] ?? 0}
+                    enableTodos={enableTodos}
+                    onSetCollapsed={onSetSpaceCollapsed}
+                    onSetLabel={onSetSpaceLabel}
+                  />
+                </React.Fragment>
+              );
+            })}
 
             {/* Minimized windows section */}
             <MinimizedSection
