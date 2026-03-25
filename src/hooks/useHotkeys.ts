@@ -75,6 +75,7 @@ export function useHotkeys(
           targetSpaceId: target.spaceId,
           windowTitle,
         });
+        invoke("resign_focus").catch(() => {});
       } catch (err) {
         feLog(
           "error",
@@ -137,6 +138,7 @@ export function useHotkeys(
       const visible = await win.isVisible();
       if (visible) {
         await win.hide();
+        invoke("resign_focus").catch(() => {});
       } else {
         await win.show();
         await win.setFocus();

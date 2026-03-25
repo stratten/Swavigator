@@ -83,6 +83,7 @@ export function SpaceCard({ space, activeSpaceId, viewMode, appIcons, spaceNameF
         targetSpaceId: space.spaceId,
         windowTitle,
       });
+      invoke("resign_focus").catch(() => {});
     } catch (err) {
       feLog("error", `[SpaceCard] navigate_to_space failed: ${err}`);
     }

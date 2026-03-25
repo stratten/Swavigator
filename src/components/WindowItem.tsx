@@ -26,6 +26,7 @@ export function WindowItem({ window, viewMode, iconSrc, fontSize = 12, grouped =
         appName: window.appName,
         windowTitle: window.title,
       });
+      invoke("resign_focus").catch(() => {});
     } catch (err) {
       invoke("log_from_frontend", { level: "error", message: `[WindowItem] Navigation failed: ${err}` }).catch(() => {});
     }

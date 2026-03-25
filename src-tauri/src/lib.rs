@@ -44,6 +44,7 @@ pub fn run() {
             commands::set_space_label,
             commands::set_space_collapsed,
             commands::navigate_to_space,
+            commands::resign_focus,
             commands::navigate_to_window,
             commands::close_window,
             commands::close_space,
@@ -152,6 +153,24 @@ pub fn run() {
             .build()?;
 
             let _ = win.set_visible_on_all_workspaces(true);
+
+            // Keep the window pinned in place during Mission Control / Exposé
+            // so it acts as an always-visible guide across desktops.
+            #[cfg(target_os = "macos")]
+            #[allow(unexpected_cfgs)]
+            unsafe {
+                let ns_app: *mut objc::runtime::Object =
+                    msg_send![objc::class!(NSApplication), sharedApplication];
+                let windows: *mut objc::runtime::Object = msg_send![ns_app, windows];
+                let count: usize = msg_send![windows, count];
+                for i in 0..count {
+                    let w: *mut objc::runtime::Object =
+                        msg_send![windows, objectAtIndex: i];
+                    let behavior: u64 = msg_send![w, collectionBehavior];
+                    let stationary: u64 = 1 << 4;
+                    let _: () = msg_send![w, setCollectionBehavior: behavior | stationary];
+                }
+            }
 
             let app_handle = app.handle().clone();
 

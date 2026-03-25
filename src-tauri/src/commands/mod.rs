@@ -57,6 +57,24 @@ pub fn get_cursor_position() -> Result<(f64, f64), String> {
 }
 
 // ---------------------------------------------------------------------------
+// Focus management
+// ---------------------------------------------------------------------------
+
+/// Deactivate the app so macOS returns keyboard focus to the previously
+/// active application. The window stays visible (always-on-top) but stops
+/// capturing hotkeys that belong to other apps.
+#[tauri::command]
+pub fn resign_focus() {
+    #[cfg(target_os = "macos")]
+    #[allow(unexpected_cfgs)]
+    unsafe {
+        let ns_app: *mut objc::runtime::Object =
+            objc::msg_send![objc::class!(NSApplication), sharedApplication];
+        let _: () = objc::msg_send![ns_app, deactivate];
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Frontend → terminal logging
 // ---------------------------------------------------------------------------
 
