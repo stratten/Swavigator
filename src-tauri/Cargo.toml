@@ -1,6 +1,6 @@
 [package]
 name = "swavigator"
-version = "0.5.2"
+version = "0.5.3"
 description = "A macOS workspace manager with space labeling and navigation."
 authors = ["you"]
 edition = "2021"

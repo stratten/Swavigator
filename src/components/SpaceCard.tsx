@@ -51,7 +51,20 @@ export function SpaceCard({ space, activeSpaceId, viewMode, appIcons, spaceNameF
   const [labelDraft, setLabelDraft] = useState(space.label);
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPos, setContextMenuPos] = useState({ x: 0, y: 0 });
+  const [flashError, setFlashError] = useState(false);
+  const flashTimeoutRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const triggerNavigationFailureFlash = useCallback(() => {
+    setFlashError(true);
+    if (flashTimeoutRef.current != null) {
+      window.clearTimeout(flashTimeoutRef.current);
+    }
+    flashTimeoutRef.current = window.setTimeout(() => {
+      setFlashError(false);
+      flashTimeoutRef.current = null;
+    }, 700);
+  }, []);
 
   useEffect(() => {
     if (editing && inputRef.current) {
@@ -66,6 +79,14 @@ export function SpaceCard({ space, activeSpaceId, viewMode, appIcons, spaceNameF
       setLabelDraft(space.label);
     }
   }, [space.label, editing]);
+
+  useEffect(() => {
+    return () => {
+      if (flashTimeoutRef.current != null) {
+        window.clearTimeout(flashTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Always show the space number for Mission Control reference.
   // Format: "X · Label" or "X · Desktop" for consistency.
@@ -86,6 +107,7 @@ export function SpaceCard({ space, activeSpaceId, viewMode, appIcons, spaceNameF
       invoke("resign_focus").catch(() => {});
     } catch (err) {
       feLog("error", `[SpaceCard] navigate_to_space failed: ${err}`);
+      triggerNavigationFailureFlash();
     }
   };
 
@@ -147,10 +169,17 @@ export function SpaceCard({ space, activeSpaceId, viewMode, appIcons, spaceNameF
     <div
       className="rounded-md mb-0.5 overflow-hidden"
       style={{
-        background: isActive ? "var(--active-space-bg)" : "transparent",
-        border: isActive
-          ? "1px solid var(--active-space-border)"
-          : "1px solid transparent",
+        background: flashError
+          ? "var(--error-flash-bg)"
+          : isActive
+            ? "var(--active-space-bg)"
+            : "transparent",
+        border: flashError
+          ? "1px solid var(--error-flash-border)"
+          : isActive
+            ? "1px solid var(--active-space-border)"
+            : "1px solid transparent",
+        transition: "background 200ms ease, border-color 200ms ease",
       }}
     >
       {/* Header */}
@@ -615,6 +644,7 @@ export function SpaceCard({ space, activeSpaceId, viewMode, appIcons, spaceNameF
               viewMode={viewMode}
               iconSrc={appIcons[w.bundleId]}
               fontSize={windowFontSize}
+              onNavigationFailed={triggerNavigationFailureFlash}
             />
           ))}
         </div>

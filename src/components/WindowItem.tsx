@@ -11,9 +11,18 @@ interface WindowItemProps {
   /** When true, this item is rendered under an app-group header; icon and
    *  app name are omitted because the header already shows them. */
   grouped?: boolean;
+  /** Optional callback when navigation fails. */
+  onNavigationFailed?: () => void;
 }
 
-export function WindowItem({ window, viewMode, iconSrc, fontSize = 12, grouped = false }: WindowItemProps) {
+export function WindowItem({
+  window,
+  viewMode,
+  iconSrc,
+  fontSize = 12,
+  grouped = false,
+  onNavigationFailed,
+}: WindowItemProps) {
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -29,6 +38,7 @@ export function WindowItem({ window, viewMode, iconSrc, fontSize = 12, grouped =
       invoke("resign_focus").catch(() => {});
     } catch (err) {
       invoke("log_from_frontend", { level: "error", message: `[WindowItem] Navigation failed: ${err}` }).catch(() => {});
+      onNavigationFailed?.();
     }
   };
 

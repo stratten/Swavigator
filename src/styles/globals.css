@@ -11,6 +11,8 @@
   --accent-green: #22c55e;
   --active-space-bg: rgba(59, 130, 246, 0.15);
   --active-space-border: rgba(59, 130, 246, 0.4);
+  --error-flash-bg: rgba(239, 68, 68, 0.18);
+  --error-flash-border: rgba(239, 68, 68, 0.55);
   --hover-bg: rgba(63, 63, 70, 0.4);
 }
 

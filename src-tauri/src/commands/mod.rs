@@ -202,6 +202,7 @@ pub fn navigate_to_space(
         current_space_id,
         target_space_id,
         window_title.as_deref(),
+        &spaces::enumerate_spaces().unwrap_or_default(),
     )
 }
 
@@ -213,7 +214,22 @@ pub fn navigate_to_window(app_name: String, window_title: String) -> Result<(), 
         app_name,
         window_title
     );
-    navigator::navigate_to_window(&app_name, &window_title)
+    let spaces = spaces::enumerate_spaces().unwrap_or_default();
+    let window_map = windows::enumerate_windows().unwrap_or_default();
+
+    let target_space_id = window_map.iter().find_map(|(space_id, entries)| {
+        entries.iter().find_map(|w| {
+            let app_matches = w.app_name == app_name;
+            let title_matches = w.title == window_title;
+            if app_matches && title_matches && *space_id > 0 {
+                Some(*space_id)
+            } else {
+                None
+            }
+        })
+    });
+
+    navigator::navigate_to_window(&app_name, &window_title, target_space_id, &spaces)
 }
 
 /// Close a specific window.
