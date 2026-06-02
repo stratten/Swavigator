@@ -35,7 +35,7 @@ export function useAppGroups() {
     return Array.from(names).sort().join("\0");
   }, [groups]);
 
-  // Poll badge counts every 5 seconds when tray is visible.
+  // Poll badge counts periodically when tray is visible.
   useEffect(() => {
     if (!trayVisible || !appNamesKey) return;
 
@@ -59,7 +59,7 @@ export function useAppGroups() {
     };
 
     fetchBadges();
-    const interval = setInterval(fetchBadges, 5000);
+    const interval = setInterval(fetchBadges, 15000);
     return () => clearInterval(interval);
   }, [trayVisible, appNamesKey]);
 

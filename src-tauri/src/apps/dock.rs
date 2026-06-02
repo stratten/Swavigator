@@ -2,6 +2,25 @@
 
 use super::AppBadge;
 
+#[cfg(target_os = "macos")]
+use std::{
+    collections::{HashMap, HashSet},
+    ptr,
+};
+
+#[cfg(target_os = "macos")]
+use core_foundation::{
+    array::CFArray,
+    base::{CFType, CFTypeRef, TCFType},
+    string::{CFString, CFStringRef},
+};
+
+#[cfg(target_os = "macos")]
+use objc::{class, msg_send, sel, sel_impl};
+
+#[cfg(target_os = "macos")]
+use objc::runtime::Object;
+
 // ---------------------------------------------------------------------------
 // Show an app's Dock context menu via the Accessibility API
 // ---------------------------------------------------------------------------
@@ -117,131 +136,138 @@ pub fn get_app_badge_counts(app_names: &[String]) -> Result<Vec<AppBadge>, Strin
 
 #[cfg(target_os = "macos")]
 fn get_app_badge_counts_macos(app_names: &[String]) -> Result<Vec<AppBadge>, String> {
-    use std::io::Write;
+    let Some(dock_pid) = dock_pid() else {
+        return Ok(Vec::new());
+    };
 
-    // Build a JSON array of the app names to pass via stdin.
-    let names_json = serde_json::to_string(app_names)
-        .map_err(|e| format!("Failed to serialize app names: {e}"))?;
-
-    let swift_src = r#"
-import Cocoa
-import Foundation
-
-// Read app names from stdin.
-let inputData = FileHandle.standardInput.readDataToEndOfFile()
-let appNames: [String] = {
-    guard let arr = try? JSONSerialization.jsonObject(with: inputData) as? [String] else {
-        return []
+    let dock_ref = unsafe { AXUIElementCreateApplication(dock_pid) };
+    if dock_ref.is_null() {
+        return Ok(Vec::new());
     }
-    return arr
-}()
 
-// Find the Dock process.
-guard let dockApp = NSWorkspace.shared.runningApplications
-        .first(where: { $0.bundleIdentifier == "com.apple.dock" }) else {
-    print("[]")
-    exit(0)
+    let dock = unsafe { CFType::wrap_under_create_rule(dock_ref) };
+    let names: HashSet<String> = app_names.iter().cloned().collect();
+    let mut badges = HashMap::new();
+    collect_badges(&dock, &names, &mut badges);
+
+    Ok(app_names
+        .iter()
+        .map(|name| AppBadge {
+            // We use the name as a placeholder for bundle_id; the caller maps
+            // name -> bundle_id.
+            bundle_id: name.clone(),
+            badge: badges.get(name).cloned().unwrap_or_default(),
+        })
+        .collect())
 }
 
-let dockRef = AXUIElementCreateApplication(dockApp.processIdentifier)
+#[cfg(target_os = "macos")]
+#[link(name = "ApplicationServices", kind = "framework")]
+unsafe extern "C" {
+    fn AXUIElementCreateApplication(pid: i32) -> CFTypeRef;
+    fn AXUIElementCopyAttributeValue(
+        element: CFTypeRef,
+        attribute: CFStringRef,
+        value: *mut CFTypeRef,
+    ) -> i32;
+}
 
-// Helper: recursively find dock item status labels.
-func findBadges(_ element: AXUIElement, forNames names: [String]) -> [String: String] {
-    var results: [String: String] = [:]
+#[cfg(target_os = "macos")]
+fn dock_pid() -> Option<i32> {
+    unsafe {
+        let workspace: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
+        if workspace.is_null() {
+            return None;
+        }
 
-    var childrenRef: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(
-        element, kAXChildrenAttribute as CFString, &childrenRef
-    ) == .success, let children = childrenRef as? [AXUIElement] else {
-        return results
+        let apps: *mut Object = msg_send![workspace, runningApplications];
+        if apps.is_null() {
+            return None;
+        }
+
+        let count: usize = msg_send![apps, count];
+        for index in 0..count {
+            let app: *mut Object = msg_send![apps, objectAtIndex: index];
+            if app.is_null() {
+                continue;
+            }
+
+            let bundle_id_obj: *mut Object = msg_send![app, bundleIdentifier];
+            if ns_string(bundle_id_obj).as_deref() == Some("com.apple.dock") {
+                let pid: i32 = msg_send![app, processIdentifier];
+                return Some(pid);
+            }
+        }
     }
 
-    for child in children {
-        var titleRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(
-            child, kAXTitleAttribute as CFString, &titleRef
-        ) == .success, let title = titleRef as? String {
-            if names.contains(title) {
-                // Look for status label (badge count).
-                var statusRef: CFTypeRef?
-                if AXUIElementCopyAttributeValue(
-                    child, "AXStatusLabel" as CFString, &statusRef
-                ) == .success, let status = statusRef as? String {
-                    results[title] = status
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn collect_badges(
+    element: &CFType,
+    names: &HashSet<String>,
+    results: &mut HashMap<String, String>,
+) {
+    let Some(children) =
+        ax_attribute(element, "AXChildren").and_then(|value| value.downcast::<CFArray>())
+    else {
+        return;
+    };
+
+    for child_raw in children.get_all_values() {
+        let child = unsafe { CFType::wrap_under_get_rule(child_raw as CFTypeRef) };
+        if let Some(title) = ax_attribute(&child, "AXTitle")
+            .and_then(|value| value.downcast::<CFString>())
+            .map(|value| value.to_string())
+        {
+            if names.contains(&title) {
+                if let Some(status) = ax_attribute(&child, "AXStatusLabel")
+                    .and_then(|value| value.downcast::<CFString>())
+                    .map(|value| value.to_string())
+                {
+                    results.insert(title, status);
                 }
             }
         }
 
-        // Recurse into children.
-        let childResults = findBadges(child, forNames: names)
-        for (k, v) in childResults {
-            results[k] = v
-        }
+        collect_badges(&child, names, results);
     }
-
-    return results
 }
 
-let badges = findBadges(dockRef, forNames: appNames)
+#[cfg(target_os = "macos")]
+fn ax_attribute(element: &CFType, attribute: &'static str) -> Option<CFType> {
+    let attribute = CFString::from_static_string(attribute);
+    let mut value: CFTypeRef = ptr::null();
+    let status = unsafe {
+        AXUIElementCopyAttributeValue(
+            element.as_CFTypeRef(),
+            attribute.as_concrete_TypeRef(),
+            &mut value,
+        )
+    };
 
-var output: [[String: String]] = []
-for name in appNames {
-    output.append(["name": name, "badge": badges[name] ?? ""])
+    if status != 0 || value.is_null() {
+        return None;
+    }
+
+    Some(unsafe { CFType::wrap_under_create_rule(value) })
 }
 
-if let data = try? JSONSerialization.data(withJSONObject: output, options: []),
-   let json = String(data: data, encoding: .utf8) {
-    print(json)
-}
-"#;
-
-    let mut child = std::process::Command::new("swift")
-        .arg("-e")
-        .arg(swift_src)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to run Swift: {e}"))?;
-
-    // Write the JSON app names to stdin.
-    if let Some(ref mut stdin) = child.stdin {
-        let _ = stdin.write_all(names_json.as_bytes());
+#[cfg(target_os = "macos")]
+fn ns_string(value: *mut Object) -> Option<String> {
+    if value.is_null() {
+        return None;
     }
 
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("Failed to wait for Swift process: {e}"))?;
-
-    if !output.status.success() {
-        // Badge reading is best-effort; don't fail hard.
-        log::warn!(
-            "[apps] Badge count script failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        return Ok(Vec::new());
+    let c_string: *const std::os::raw::c_char = unsafe { msg_send![value, UTF8String] };
+    if c_string.is_null() {
+        return None;
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if stdout.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let raw: Vec<std::collections::HashMap<String, String>> =
-        serde_json::from_str(&stdout)
-            .map_err(|e| format!("Failed to parse badge JSON: {e}"))?;
-
-    Ok(raw
-        .into_iter()
-        .filter_map(|m| {
-            let name = m.get("name")?.clone();
-            let badge = m.get("badge").cloned().unwrap_or_default();
-            // We use the name as a placeholder for bundle_id; the caller
-            // maps name -> bundle_id.
-            Some(AppBadge {
-                bundle_id: name,
-                badge,
-            })
-        })
-        .collect())
+    Some(
+        unsafe { std::ffi::CStr::from_ptr(c_string) }
+            .to_string_lossy()
+            .into_owned(),
+    )
 }

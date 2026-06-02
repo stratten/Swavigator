@@ -8,6 +8,8 @@ export interface SpaceInfo {
   displayId: string;
   /** User-assigned label (empty string if not set). */
   label: string;
+  /** Optional user-assigned display color for the space name. */
+  spaceNameColor?: string | null;
   /** Whether this is the currently active (focused) space. */
   isActive: boolean;
   /** Whether this space is the currently visible (frontmost) space on its display. */
@@ -141,6 +143,8 @@ export interface UserSettings {
   spaceViewModes: Record<string, ViewMode>;
   /** Font size (px) for space name labels. */
   spaceNameFontSize: number;
+  /** Whether space name labels should render in bold. */
+  spaceNameBold?: boolean;
   /** Font size (px) for window/app name text. */
   windowFontSize: number;
   /** Remembered expanded window width (logical px). */

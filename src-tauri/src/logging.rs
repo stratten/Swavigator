@@ -70,8 +70,7 @@ pub fn enable_file_logging() -> Result<PathBuf, String> {
     let ts = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
     let path = log_dir.join(format!("swavigator_{}.log", ts));
 
-    let file =
-        File::create(&path).map_err(|e| format!("Failed to create log file: {}", e))?;
+    let file = File::create(&path).map_err(|e| format!("Failed to create log file: {}", e))?;
 
     if let Ok(mut guard) = LOG_FILE.lock() {
         *guard = Some(file);

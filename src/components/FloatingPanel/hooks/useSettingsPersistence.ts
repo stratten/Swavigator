@@ -21,6 +21,7 @@ function feLog(level: string, message: string) {
 export interface SettingsState {
   viewMode: ViewMode;
   spaceNameFontSize: number;
+  spaceNameBold: boolean;
   windowFontSize: number;
   fontFamily: string;
   toggleHotkey: string | undefined;
@@ -42,6 +43,7 @@ export interface UseSettingsPersistenceReturn {
   settings: SettingsState;
   setViewMode: React.Dispatch<React.SetStateAction<ViewMode>>;
   setSpaceNameFontSize: React.Dispatch<React.SetStateAction<number>>;
+  setSpaceNameBold: React.Dispatch<React.SetStateAction<boolean>>;
   setWindowFontSize: React.Dispatch<React.SetStateAction<number>>;
   setFontFamily: React.Dispatch<React.SetStateAction<string>>;
   setToggleHotkey: React.Dispatch<React.SetStateAction<string | undefined>>;
@@ -68,6 +70,7 @@ export function useSettingsPersistence(
 ): UseSettingsPersistenceReturn {
   const [viewMode, setViewMode] = useState<ViewMode>("compact");
   const [spaceNameFontSize, setSpaceNameFontSize] = useState(13);
+  const [spaceNameBold, setSpaceNameBold] = useState(false);
   const [windowFontSize, setWindowFontSize] = useState(12);
   const [fontFamily, setFontFamily] = useState('"Helvetica Neue", Helvetica, Arial, sans-serif');
   const [toggleHotkey, setToggleHotkey] = useState<string | undefined>("Option+S");
@@ -119,6 +122,7 @@ export function useSettingsPersistence(
         spaceViewModes: base?.spaceViewModes ?? {},
         viewMode,
         spaceNameFontSize,
+        spaceNameBold,
         windowFontSize,
         expandedWidth: safeExpandedW,
         expandedHeight: safeExpandedH,
@@ -148,7 +152,7 @@ export function useSettingsPersistence(
         feLog("error", `[FloatingPanel] Failed to save settings: ${err}`),
       );
     },
-    [viewMode, spaceNameFontSize, windowFontSize, fontFamily, toggleHotkey, lowOpacityWhenIdle, idleOpacity, highlightRunningApps, orientation, traySplitPercent, showMinimized, dockMode, dockEdge, dockTriggerSize, dockTriggerOpacity, dockHideDelay, enableTodos],
+    [viewMode, spaceNameFontSize, spaceNameBold, windowFontSize, fontFamily, toggleHotkey, lowOpacityWhenIdle, idleOpacity, highlightRunningApps, orientation, traySplitPercent, showMinimized, dockMode, dockEdge, dockTriggerSize, dockTriggerOpacity, dockHideDelay, enableTodos],
   );
 
   // Load settings on mount.
@@ -160,6 +164,7 @@ export function useSettingsPersistence(
         fullSettingsRef.current = settings;
         setViewMode((settings.viewMode as ViewMode) || "compact");
         if (settings.spaceNameFontSize) setSpaceNameFontSize(settings.spaceNameFontSize);
+        if (settings.spaceNameBold != null) setSpaceNameBold(settings.spaceNameBold);
         if (settings.windowFontSize) setWindowFontSize(settings.windowFontSize);
         if (settings.expandedWidth) expandedSizeRef.current.width = settings.expandedWidth;
         if (settings.expandedHeight) expandedSizeRef.current.height = settings.expandedHeight;
@@ -229,6 +234,7 @@ export function useSettingsPersistence(
       }
       if (s.viewMode) setViewMode(s.viewMode as ViewMode);
       if (s.spaceNameFontSize) setSpaceNameFontSize(s.spaceNameFontSize);
+      if (s.spaceNameBold !== undefined) setSpaceNameBold(s.spaceNameBold);
       if (s.windowFontSize) setWindowFontSize(s.windowFontSize);
       if (s.fontFamily) setFontFamily(s.fontFamily);
       if (s.toggleHotkey !== undefined) setToggleHotkey(s.toggleHotkey || undefined);
@@ -292,6 +298,7 @@ export function useSettingsPersistence(
     settings: {
       viewMode,
       spaceNameFontSize,
+      spaceNameBold,
       windowFontSize,
       fontFamily,
       toggleHotkey,
@@ -310,6 +317,7 @@ export function useSettingsPersistence(
     },
     setViewMode,
     setSpaceNameFontSize,
+    setSpaceNameBold,
     setWindowFontSize,
     setFontFamily,
     setToggleHotkey,

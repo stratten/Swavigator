@@ -52,10 +52,7 @@ pub fn set_dock_suppressed(suppress: bool) -> Result<(), String> {
             // Restore the original autohide state.
             let data = storage::load();
             let original = data.settings.original_dock_autohide.unwrap_or(false);
-            log::info!(
-                "[cmd] Restoring original Dock autohide state: {}",
-                original
-            );
+            log::info!("[cmd] Restoring original Dock autohide state: {}", original);
             let val = if original { "TRUE" } else { "FALSE" };
             let _ = std::process::Command::new("defaults")
                 .args(["write", "com.apple.dock", "autohide", "-bool", val])
@@ -106,7 +103,11 @@ pub fn get_menu_bar_height() -> f64 {
             let visible: cocoa::foundation::NSRect = objc::msg_send![screen, visibleFrame];
             // Cocoa uses bottom-left origin: menu bar height is the gap at the top.
             let h = frame.size.height - (visible.origin.y + visible.size.height);
-            if h > 0.0 { h } else { 25.0 }
+            if h > 0.0 {
+                h
+            } else {
+                25.0
+            }
         }
     }
 

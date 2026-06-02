@@ -29,8 +29,23 @@ function feLog(level: string, message: string) {
   invoke("log_from_frontend", { level, message }).catch(() => {});
 }
 
+function todoCountsEqual(
+  prev: Record<number, number>,
+  next: Record<number, number>,
+) {
+  const prevKeys = Object.keys(prev);
+  const nextKeys = Object.keys(next);
+  if (prevKeys.length !== nextKeys.length) return false;
+  for (const key of prevKeys) {
+    if (prev[Number(key)] !== next[Number(key)]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function FloatingPanel() {
-  const { spaces, activeSpaceId, minimizedWindows, loading, setSpaceCollapsed, setSpaceLabel } =
+  const { spaces, activeSpaceId, minimizedWindows, loading, setSpaceCollapsed, setSpaceLabel, setSpaceNameColor } =
     useSpaceState();
 
   // Collect unique bundle IDs and fetch their icons.
@@ -122,6 +137,7 @@ export function FloatingPanel() {
   const {
     viewMode,
     spaceNameFontSize,
+    spaceNameBold,
     windowFontSize,
     fontFamily,
     toggleHotkey,
@@ -233,7 +249,7 @@ export function FloatingPanel() {
           counts[todo.spaceId] = (counts[todo.spaceId] || 0) + 1;
         }
       }
-      setTodoCounts(counts);
+      setTodoCounts((prev) => (todoCountsEqual(prev, counts) ? prev : counts));
     } catch {
       // Silently ignore — non-critical
     }
@@ -281,9 +297,22 @@ export function FloatingPanel() {
   const handleOpenSettings = useCallback(async () => {
     const existing = await WebviewWindow.getByLabel("settings");
     if (existing) {
-      await existing.setFocus();
+      feLog("info", "[FloatingPanel] Existing settings window found; showing and focusing");
+      try {
+        await existing.show();
+        feLog("info", "[FloatingPanel] Existing settings window show succeeded");
+      } catch (err) {
+        feLog("error", `[FloatingPanel] Existing settings window show failed: ${err}`);
+      }
+      try {
+        await existing.setFocus();
+        feLog("info", "[FloatingPanel] Existing settings window focus succeeded");
+      } catch (err) {
+        feLog("error", `[FloatingPanel] Existing settings window focus failed: ${err}`);
+      }
       return;
     }
+    feLog("info", "[FloatingPanel] Creating settings window");
     const settingsWindow = new WebviewWindow("settings", {
       url: "/",
       title: "Swavigator Settings",
@@ -425,6 +454,7 @@ export function FloatingPanel() {
           viewMode={viewMode}
           appIcons={appIcons}
           spaceNameFontSize={spaceNameFontSize}
+          spaceNameBold={spaceNameBold}
           windowFontSize={windowFontSize}
           totalDisplays={totalDisplays}
           externalDisplayNumbers={externalDisplayNumbers}
@@ -433,6 +463,7 @@ export function FloatingPanel() {
           onStartDragging={startDragging}
           onSetSpaceCollapsed={setSpaceCollapsed}
           onSetSpaceLabel={setSpaceLabel}
+          onSetSpaceNameColor={setSpaceNameColor}
           todoCounts={todoCounts}
           enableTodos={enableTodos}
           groups={groups}
@@ -462,6 +493,7 @@ export function FloatingPanel() {
           viewMode={viewMode}
           appIcons={appIcons}
           spaceNameFontSize={spaceNameFontSize}
+          spaceNameBold={spaceNameBold}
           windowFontSize={windowFontSize}
           totalDisplays={totalDisplays}
           externalDisplayNumbers={externalDisplayNumbers}
@@ -470,6 +502,7 @@ export function FloatingPanel() {
           onStartDragging={startDragging}
           onSetSpaceCollapsed={setSpaceCollapsed}
           onSetSpaceLabel={setSpaceLabel}
+          onSetSpaceNameColor={setSpaceNameColor}
           todoCounts={todoCounts}
           enableTodos={enableTodos}
           groups={groups}

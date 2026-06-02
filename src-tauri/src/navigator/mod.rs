@@ -1,7 +1,7 @@
 //! Navigation and window/space manipulation.
 
-mod close;
 mod cgs;
+mod close;
 mod navigate;
 
 pub use close::{close_space, close_window};

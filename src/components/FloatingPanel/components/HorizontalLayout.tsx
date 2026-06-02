@@ -16,6 +16,7 @@ interface HorizontalLayoutProps {
   viewMode: ViewMode;
   appIcons: Record<string, string>;
   spaceNameFontSize: number;
+  spaceNameBold: boolean;
   windowFontSize: number;
   totalDisplays: number;
   externalDisplayNumbers: Record<string, number>;
@@ -24,6 +25,7 @@ interface HorizontalLayoutProps {
   onStartDragging: (e: React.MouseEvent) => void;
   onSetSpaceCollapsed: (spaceId: number, collapsed: boolean) => void;
   onSetSpaceLabel: (spaceId: number, label: string) => void;
+  onSetSpaceNameColor: (spaceId: number, color: string | null) => void;
   /** Incomplete to-do counts per spaceId. */
   todoCounts: Record<number, number>;
   /** Whether the tasks feature is enabled. */
@@ -59,6 +61,7 @@ export function HorizontalLayout({
   viewMode,
   appIcons,
   spaceNameFontSize,
+  spaceNameBold,
   windowFontSize,
   totalDisplays,
   externalDisplayNumbers,
@@ -67,6 +70,7 @@ export function HorizontalLayout({
   onStartDragging,
   onSetSpaceCollapsed,
   onSetSpaceLabel,
+  onSetSpaceNameColor,
   todoCounts,
   enableTodos = true,
   groups,
@@ -146,6 +150,7 @@ export function HorizontalLayout({
                       viewMode={viewMode}
                       appIcons={appIcons}
                       spaceNameFontSize={spaceNameFontSize}
+                      spaceNameBold={spaceNameBold}
                       windowFontSize={windowFontSize}
                       totalDisplays={totalDisplays}
                       externalDisplayNumber={externalDisplayNumbers[space.displayId]}
@@ -154,6 +159,7 @@ export function HorizontalLayout({
                       enableTodos={enableTodos}
                       onSetCollapsed={onSetSpaceCollapsed}
                       onSetLabel={onSetSpaceLabel}
+                      onSetSpaceNameColor={onSetSpaceNameColor}
                     />
                   </div>
                 </React.Fragment>

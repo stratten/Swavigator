@@ -10,9 +10,18 @@ pub mod context_menu;
 pub mod dock;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Window};
 
 use crate::{logging, navigator, spaces, storage, windows};
+
+#[cfg(target_os = "macos")]
+use block::ConcreteBlock;
+
+#[cfg(target_os = "macos")]
+use objc::{class, msg_send, sel, sel_impl};
+
+#[cfg(target_os = "macos")]
+use objc::runtime::Object;
 
 // ---------------------------------------------------------------------------
 // Cursor position (for hover detection on unfocused windows)
@@ -24,35 +33,73 @@ use crate::{logging, navigator, spaces, storage, windows};
 pub fn get_cursor_position() -> Result<(f64, f64), String> {
     #[cfg(target_os = "macos")]
     {
-        #[repr(C)]
-        #[derive(Copy, Clone)]
-        struct CGPoint {
-            x: f64,
-            y: f64,
-        }
-
-        type CGEventRef = *const std::ffi::c_void;
-
-        extern "C" {
-            fn CGEventCreate(source: *const std::ffi::c_void) -> CGEventRef;
-            fn CGEventGetLocation(event: CGEventRef) -> CGPoint;
-            fn CFRelease(cf: *const std::ffi::c_void);
-        }
-
-        unsafe {
-            let event = CGEventCreate(std::ptr::null());
-            if event.is_null() {
-                return Err("Failed to create CGEvent".into());
-            }
-            let point = CGEventGetLocation(event);
-            CFRelease(event);
-            Ok((point.x, point.y))
-        }
+        cursor_position()
     }
 
     #[cfg(not(target_os = "macos"))]
     {
         Err("Not supported on this platform".into())
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CursorWindowState {
+    pub cursor_x: f64,
+    pub cursor_y: f64,
+    pub inside: bool,
+}
+
+/// Returns cursor position and whether it is inside the current Tauri window
+/// in one IPC round-trip.
+#[tauri::command]
+pub fn get_cursor_window_state(window: Window) -> Result<CursorWindowState, String> {
+    let (cursor_x, cursor_y) = get_cursor_position()?;
+    let pos = window.outer_position().map_err(|e| e.to_string())?;
+    let size = window.outer_size().map_err(|e| e.to_string())?;
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+
+    let wx = pos.x as f64 / scale;
+    let wy = pos.y as f64 / scale;
+    let ww = size.width as f64 / scale;
+    let wh = size.height as f64 / scale;
+    let inside = cursor_x >= wx && cursor_x <= wx + ww && cursor_y >= wy && cursor_y <= wy + wh;
+
+    Ok(CursorWindowState {
+        cursor_x,
+        cursor_y,
+        inside,
+    })
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct CGPoint {
+    x: f64,
+    y: f64,
+}
+
+#[cfg(target_os = "macos")]
+type CGEventRef = *const std::ffi::c_void;
+
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn CGEventCreate(source: *const std::ffi::c_void) -> CGEventRef;
+    fn CGEventGetLocation(event: CGEventRef) -> CGPoint;
+    fn CFRelease(cf: *const std::ffi::c_void);
+}
+
+#[cfg(target_os = "macos")]
+fn cursor_position() -> Result<(f64, f64), String> {
+    unsafe {
+        let event = CGEventCreate(std::ptr::null());
+        if event.is_null() {
+            return Err("Failed to create CGEvent".into());
+        }
+        let point = CGEventGetLocation(event);
+        CFRelease(event);
+        Ok((point.x, point.y))
     }
 }
 
@@ -111,6 +158,7 @@ pub struct SpaceWithWindows {
     pub space_index: usize,
     pub display_id: String,
     pub label: String,
+    pub space_name_color: Option<String>,
     pub is_active: bool,
     pub is_visible: bool,
     pub is_collapsed: bool,
@@ -161,10 +209,7 @@ pub fn get_space_list() -> Result<Vec<SpaceListEntry>, String> {
 
 /// Set a label for a space. Uses spaceId for storage (survives reordering).
 #[tauri::command]
-pub fn set_space_label(
-    space_id: i64,
-    label: String,
-) -> Result<(), String> {
+pub fn set_space_label(space_id: i64, label: String) -> Result<(), String> {
     log::info!(
         "[cmd] set_space_label: space_id={}, label='{}'",
         space_id,
@@ -173,12 +218,20 @@ pub fn set_space_label(
     storage::set_label_by_id(space_id, &label)
 }
 
+/// Set or clear the display color for a space name. Uses spaceId for storage.
+#[tauri::command]
+pub fn set_space_name_color(space_id: i64, color: Option<String>) -> Result<(), String> {
+    log::info!(
+        "[cmd] set_space_name_color: space_id={}, color={:?}",
+        space_id,
+        color
+    );
+    storage::set_space_name_color_by_id(space_id, color.as_deref())
+}
+
 /// Set the collapsed state for a space. Uses spaceId for storage (survives reordering).
 #[tauri::command]
-pub fn set_space_collapsed(
-    space_id: i64,
-    collapsed: bool,
-) -> Result<(), String> {
+pub fn set_space_collapsed(space_id: i64, collapsed: bool) -> Result<(), String> {
     storage::set_collapsed_by_id(space_id, collapsed)
 }
 
@@ -398,8 +451,17 @@ pub fn get_all_todos() -> Vec<storage::TodoItem> {
 
 /// Add a new to-do item. `space_id` is null for unassigned.
 #[tauri::command]
-pub fn add_todo(space_id: Option<i64>, subject: String, text: String) -> Result<storage::TodoItem, String> {
-    log::info!("[cmd] add_todo: space_id={:?}, subject='{}', text='{}'", space_id, subject, text);
+pub fn add_todo(
+    space_id: Option<i64>,
+    subject: String,
+    text: String,
+) -> Result<storage::TodoItem, String> {
+    log::info!(
+        "[cmd] add_todo: space_id={:?}, subject='{}', text='{}'",
+        space_id,
+        subject,
+        text
+    );
     storage::add_todo(space_id, &subject, &text)
 }
 
@@ -420,21 +482,33 @@ pub fn delete_todo(todo_id: String) -> Result<(), String> {
 /// Update the text of an existing to-do item.
 #[tauri::command]
 pub fn update_todo_text(todo_id: String, text: String) -> Result<(), String> {
-    log::info!("[cmd] update_todo_text: todo_id='{}', text='{}'", todo_id, text);
+    log::info!(
+        "[cmd] update_todo_text: todo_id='{}', text='{}'",
+        todo_id,
+        text
+    );
     storage::update_todo_text(&todo_id, &text)
 }
 
 /// Update the subject of an existing to-do item.
 #[tauri::command]
 pub fn update_todo_subject(todo_id: String, subject: String) -> Result<(), String> {
-    log::info!("[cmd] update_todo_subject: todo_id='{}', subject='{}'", todo_id, subject);
+    log::info!(
+        "[cmd] update_todo_subject: todo_id='{}', subject='{}'",
+        todo_id,
+        subject
+    );
     storage::update_todo_subject(&todo_id, &subject)
 }
 
 /// Move a to-do item to a different space (null = unassign).
 #[tauri::command]
 pub fn move_todo(todo_id: String, to_space_id: Option<i64>) -> Result<(), String> {
-    log::info!("[cmd] move_todo: todo_id='{}', to={:?}", todo_id, to_space_id);
+    log::info!(
+        "[cmd] move_todo: todo_id='{}', to={:?}",
+        todo_id,
+        to_space_id
+    );
     storage::move_todo(&todo_id, to_space_id)
 }
 
@@ -466,32 +540,191 @@ pub fn get_log_file_path() -> Option<String> {
 // Background polling loop
 // ---------------------------------------------------------------------------
 
-/// Runs continuously in a background tokio task, polling space and window
-/// data and emitting state update events to the frontend only when
-/// something has actually changed.
+/// Runs continuously in a background tokio task, refreshing space/window data
+/// when macOS reports relevant changes. A slow heartbeat remains as a safety
+/// net for title/minimized-state updates that do not have reliable notifications.
 pub async fn background_poll(app_handle: AppHandle) {
     let mut last_payload: Option<SpaceStatePayload> = None;
+    let (trigger_tx, mut trigger_rx) = tokio::sync::mpsc::channel(32);
+    log::info!("[state] background_poll starting");
+    install_state_change_observers(trigger_tx.clone());
+    let _ = trigger_tx.try_send(StateRefreshTrigger::Refresh);
+
+    let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(15));
+    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
-        if let Some(payload) = build_state_payload() {
-            // Only emit if the data has changed (ignoring timestamp).
-            let changed = match &last_payload {
-                Some(prev) => {
-                    prev.active_space_id != payload.active_space_id
-                        || prev.spaces != payload.spaces
-                        || prev.minimized_windows != payload.minimized_windows
-                }
-                None => true,
-            };
+        let trigger = tokio::select! {
+            maybe_trigger = trigger_rx.recv() => maybe_trigger.unwrap_or(StateRefreshTrigger::Refresh),
+            _ = heartbeat.tick() => StateRefreshTrigger::Refresh,
+        };
 
-            if changed {
-                let _ = app_handle.emit("space-state-update", &payload);
-                last_payload = Some(payload);
+        log::info!("[state] refresh trigger received: {:?}", trigger);
+        apply_state_refresh_trigger(trigger);
+        emit_state_if_changed(&app_handle, &mut last_payload);
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum StateRefreshTrigger {
+    Refresh,
+    AppsChanged,
+    DisplaysChanged,
+}
+
+fn apply_state_refresh_trigger(trigger: StateRefreshTrigger) {
+    match trigger {
+        StateRefreshTrigger::Refresh => {}
+        StateRefreshTrigger::AppsChanged => {
+            log::info!("[state] invalidating running app cache");
+            #[cfg(target_os = "macos")]
+            windows::invalidate_running_app_cache();
+        }
+        StateRefreshTrigger::DisplaysChanged => {
+            log::info!("[state] invalidating display cache");
+            #[cfg(target_os = "macos")]
+            spaces::invalidate_display_cache();
+        }
+    }
+}
+
+fn emit_state_if_changed(app_handle: &AppHandle, last_payload: &mut Option<SpaceStatePayload>) {
+    let started = std::time::Instant::now();
+    log::info!("[state] emit_state_if_changed start");
+    if let Some(payload) = build_state_payload() {
+        // Only emit if the data has changed (ignoring timestamp).
+        let changed = match last_payload.as_ref() {
+            Some(prev) => {
+                prev.active_space_id != payload.active_space_id
+                    || prev.spaces != payload.spaces
+                    || prev.minimized_windows != payload.minimized_windows
             }
+            None => true,
+        };
+
+        let space_count = payload.spaces.len();
+        let minimized_count = payload.minimized_windows.len();
+
+        if changed {
+            let _ = app_handle.emit("space-state-update", &payload);
+            *last_payload = Some(payload);
         }
 
-        // Poll every second for OS-level changes.
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        log::info!(
+            "[state] emit_state_if_changed end: changed={}, spaces={}, minimized={}, elapsed_ms={}",
+            changed,
+            space_count,
+            minimized_count,
+            started.elapsed().as_millis(),
+        );
+    } else {
+        log::warn!(
+            "[state] emit_state_if_changed failed: build_state_payload returned None, elapsed_ms={}",
+            started.elapsed().as_millis(),
+        );
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn install_state_change_observers(tx: tokio::sync::mpsc::Sender<StateRefreshTrigger>) {
+    log::info!("[state] installing macOS state-change observers");
+    unsafe {
+        let workspace: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
+        if !workspace.is_null() {
+            let center: *mut Object = msg_send![workspace, notificationCenter];
+            install_notification_observer(
+                center,
+                "NSWorkspaceActiveSpaceDidChangeNotification",
+                tx.clone(),
+                StateRefreshTrigger::Refresh,
+            );
+            install_notification_observer(
+                center,
+                "NSWorkspaceDidLaunchApplicationNotification",
+                tx.clone(),
+                StateRefreshTrigger::AppsChanged,
+            );
+            install_notification_observer(
+                center,
+                "NSWorkspaceDidTerminateApplicationNotification",
+                tx.clone(),
+                StateRefreshTrigger::AppsChanged,
+            );
+        } else {
+            log::warn!("[state] NSWorkspace unavailable; workspace observers not installed");
+        }
+
+        let default_center: *mut Object = msg_send![class!(NSNotificationCenter), defaultCenter];
+        install_notification_observer(
+            default_center,
+            "NSApplicationDidChangeScreenParametersNotification",
+            tx,
+            StateRefreshTrigger::DisplaysChanged,
+        );
+    }
+    log::info!("[state] macOS state-change observer installation complete");
+}
+
+#[cfg(not(target_os = "macos"))]
+fn install_state_change_observers(_tx: tokio::sync::mpsc::Sender<StateRefreshTrigger>) {}
+
+#[cfg(target_os = "macos")]
+unsafe fn install_notification_observer(
+    center: *mut Object,
+    name: &'static str,
+    tx: tokio::sync::mpsc::Sender<StateRefreshTrigger>,
+    trigger: StateRefreshTrigger,
+) {
+    let notification_name = name;
+    if center.is_null() {
+        log::warn!(
+            "[state] observer not installed: center null for {}",
+            notification_name
+        );
+        return;
+    }
+
+    let Some(name) = ns_string(name) else {
+        log::warn!("[state] observer not installed: invalid notification name");
+        return;
+    };
+
+    log::info!(
+        "[state] installing observer: name={}, trigger={:?}",
+        notification_name,
+        trigger,
+    );
+    let block = ConcreteBlock::new(move |_notification: *mut Object| {
+        log::info!(
+            "[state] observer fired: name={}, trigger={:?}",
+            notification_name,
+            trigger,
+        );
+        let _ = tx.try_send(trigger);
+    })
+    .copy();
+
+    let _: *mut Object = msg_send![
+        center,
+        addObserverForName: name
+        object: std::ptr::null_mut::<Object>()
+        queue: std::ptr::null_mut::<Object>()
+        usingBlock: &*block
+    ];
+
+    // Notification centers retain/copy observer blocks for process lifetime.
+    // Leaking the Rust RcBlock avoids releasing our captured sender early.
+    std::mem::forget(block);
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn ns_string(value: &str) -> Option<*mut Object> {
+    let value = std::ffi::CString::new(value).ok()?;
+    let ns_string: *mut Object = msg_send![class!(NSString), stringWithUTF8String: value.as_ptr()];
+    if ns_string.is_null() {
+        None
+    } else {
+        Some(ns_string)
     }
 }
 
@@ -519,10 +752,8 @@ fn build_state_payload() -> Option<SpaceStatePayload> {
         .iter()
         .map(|s| storage::space_key(&s.display_id, s.space_index))
         .collect();
-    let live_space_ids: std::collections::HashSet<i64> = space_list
-        .iter()
-        .map(|s| s.space_id)
-        .collect();
+    let live_space_ids: std::collections::HashSet<i64> =
+        space_list.iter().map(|s| s.space_id).collect();
 
     // Prune stale entries from both legacy and new storage.
     let stale_label_keys: Vec<String> = stored
@@ -549,11 +780,18 @@ fn build_state_payload() -> Option<SpaceStatePayload> {
         .filter(|k| !live_space_ids.contains(*k))
         .copied()
         .collect();
+    let stale_color_ids: Vec<i64> = stored
+        .space_name_colors_by_space_id
+        .keys()
+        .filter(|k| !live_space_ids.contains(*k))
+        .copied()
+        .collect();
 
     let has_stale = !stale_label_keys.is_empty()
         || !stale_collapsed_keys.is_empty()
         || !stale_label_ids.is_empty()
-        || !stale_collapsed_ids.is_empty();
+        || !stale_collapsed_ids.is_empty()
+        || !stale_color_ids.is_empty();
 
     if has_stale {
         for k in &stale_label_keys {
@@ -572,6 +810,10 @@ fn build_state_payload() -> Option<SpaceStatePayload> {
             log::info!("[state] Pruning stale collapsed spaceId: {}", id);
             stored.collapsed_by_space_id.remove(id);
         }
+        for id in &stale_color_ids {
+            log::info!("[state] Pruning stale space name color spaceId: {}", id);
+            stored.space_name_colors_by_space_id.remove(id);
+        }
 
         // Unassign todos whose space no longer exists.
         // last_assigned_to is already set, so the user retains context.
@@ -580,7 +822,9 @@ fn build_state_payload() -> Option<SpaceStatePayload> {
                 if !live_space_ids.contains(&sid) {
                     log::info!(
                         "[state] Orphaning todo '{}' from stale space {} (was '{}')",
-                        todo.id, sid, todo.last_assigned_to.as_deref().unwrap_or(""),
+                        todo.id,
+                        sid,
+                        todo.last_assigned_to.as_deref().unwrap_or(""),
                     );
                     todo.space_id = None;
                 }
@@ -622,7 +866,9 @@ fn build_state_payload() -> Option<SpaceStatePayload> {
                     legacy_collapsed,
                     legacy_key
                 );
-                stored.collapsed_by_space_id.insert(s.space_id, legacy_collapsed);
+                stored
+                    .collapsed_by_space_id
+                    .insert(s.space_id, legacy_collapsed);
                 stored.collapsed.remove(&legacy_key);
                 migrated = true;
             }
@@ -649,6 +895,10 @@ fn build_state_payload() -> Option<SpaceStatePayload> {
                 .get(&s.space_id)
                 .copied()
                 .unwrap_or(false);
+            let space_name_color = stored
+                .space_name_colors_by_space_id
+                .get(&s.space_id)
+                .cloned();
             let wins = window_map.get(&s.space_id).cloned().unwrap_or_default();
 
             SpaceWithWindows {
@@ -656,6 +906,7 @@ fn build_state_payload() -> Option<SpaceStatePayload> {
                 space_index: s.space_index,
                 display_id: s.display_id.clone(),
                 label,
+                space_name_color,
                 is_active: s.is_active,
                 is_visible: s.is_visible,
                 is_collapsed,

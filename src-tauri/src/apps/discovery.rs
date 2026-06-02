@@ -30,7 +30,9 @@ fn get_dock_apps_macos() -> Result<Vec<DiscoverableApp>, String> {
     let value = plist::Value::from_file(&plist_path)
         .map_err(|e| format!("Failed to read dock plist: {}", e))?;
 
-    let dict = value.as_dictionary().ok_or("Dock plist is not a dictionary.")?;
+    let dict = value
+        .as_dictionary()
+        .ok_or("Dock plist is not a dictionary.")?;
 
     let persistent_apps = dict
         .get("persistent-apps")
@@ -170,9 +172,8 @@ if let data = try? JSONSerialization.data(withJSONObject: results, options: []),
         return Ok(Vec::new());
     }
 
-    let raw: Vec<std::collections::HashMap<String, String>> =
-        serde_json::from_str(&stdout)
-            .map_err(|e| format!("Failed to parse installed apps JSON: {e}"))?;
+    let raw: Vec<std::collections::HashMap<String, String>> = serde_json::from_str(&stdout)
+        .map_err(|e| format!("Failed to parse installed apps JSON: {e}"))?;
 
     Ok(raw
         .into_iter()
@@ -241,9 +242,8 @@ if let data = try? JSONSerialization.data(withJSONObject: results, options: []),
         return Ok(Vec::new());
     }
 
-    let raw: Vec<std::collections::HashMap<String, String>> =
-        serde_json::from_str(&stdout)
-            .map_err(|e| format!("Failed to parse running apps JSON: {e}"))?;
+    let raw: Vec<std::collections::HashMap<String, String>> = serde_json::from_str(&stdout)
+        .map_err(|e| format!("Failed to parse running apps JSON: {e}"))?;
 
     Ok(raw
         .into_iter()

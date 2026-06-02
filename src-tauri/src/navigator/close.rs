@@ -367,7 +367,8 @@ exit(1)
 
     log::info!(
         "[nav] Closed window '{}' of app '{}'.",
-        window_title, app_name
+        window_title,
+        app_name
     );
     Ok(())
 }

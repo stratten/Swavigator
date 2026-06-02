@@ -6,6 +6,10 @@ import { DEFAULT_DOCK_TRIGGER_SIZE, DEFAULT_DOCK_HIDE_DELAY } from "../constants
 
 type Edge = "left" | "right" | "top" | "bottom";
 
+type CursorWindowState = {
+  inside: boolean;
+};
+
 export interface UseDockModeReturn {
   isDockExpanded: boolean;
   dockModeActive: boolean;
@@ -265,20 +269,7 @@ export function useDockMode(
     const poll = async () => {
       if (!active) return;
       try {
-        const win = getCurrentWindow();
-        const [cursorX, cursorY] = await invoke<[number, number]>("get_cursor_position");
-        const pos = await win.outerPosition();
-        const size = await win.outerSize();
-        const scale = await win.scaleFactor();
-
-        const wx = pos.x / scale;
-        const wy = pos.y / scale;
-        const ww = size.width / scale;
-        const wh = size.height / scale;
-
-        const inside =
-          cursorX >= wx && cursorX <= wx + ww &&
-          cursorY >= wy && cursorY <= wy + wh;
+        const { inside } = await invoke<CursorWindowState>("get_cursor_window_state");
 
         setIsDockExpanded((prevExpanded) => {
           if (!prevExpanded && inside && !isResizingRef.current) {
@@ -310,7 +301,7 @@ export function useDockMode(
       }
     };
 
-    const intervalId = setInterval(poll, 100);
+    const intervalId = setInterval(poll, 200);
     poll();
 
     return () => {

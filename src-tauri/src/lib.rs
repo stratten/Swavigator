@@ -40,8 +40,10 @@ pub fn run() {
             commands::get_space_state,
             commands::get_space_list,
             commands::get_cursor_position,
+            commands::get_cursor_window_state,
             commands::log_from_frontend,
             commands::set_space_label,
+            commands::set_space_name_color,
             commands::set_space_collapsed,
             commands::navigate_to_space,
             commands::resign_focus,
@@ -135,22 +137,19 @@ pub fn run() {
             // drag-drop handler intercepts all native drag events (returning
             // true unconditionally), which prevents WKWebView from dispatching
             // JavaScript dragover / drop events — breaking HTML5 DnD entirely.
-            let win = WebviewWindowBuilder::new(
-                app,
-                "main",
-                tauri::WebviewUrl::App(Default::default()),
-            )
-            .title("Swavigator")
-            .inner_size(280.0, 400.0)
-            .min_inner_size(80.0, 200.0)
-            .resizable(true)
-            .decorations(false)
-            .transparent(true)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .position(100.0, 100.0)
-            .disable_drag_drop_handler()
-            .build()?;
+            let win =
+                WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App(Default::default()))
+                    .title("Swavigator")
+                    .inner_size(280.0, 400.0)
+                    .min_inner_size(80.0, 200.0)
+                    .resizable(true)
+                    .decorations(false)
+                    .transparent(true)
+                    .always_on_top(true)
+                    .skip_taskbar(true)
+                    .position(100.0, 100.0)
+                    .disable_drag_drop_handler()
+                    .build()?;
 
             let _ = win.set_visible_on_all_workspaces(true);
 
@@ -164,8 +163,7 @@ pub fn run() {
                 let windows: *mut objc::runtime::Object = msg_send![ns_app, windows];
                 let count: usize = msg_send![windows, count];
                 for i in 0..count {
-                    let w: *mut objc::runtime::Object =
-                        msg_send![windows, objectAtIndex: i];
+                    let w: *mut objc::runtime::Object = msg_send![windows, objectAtIndex: i];
                     let behavior: u64 = msg_send![w, collectionBehavior];
                     let stationary: u64 = 1 << 4;
                     let _: () = msg_send![w, setCollectionBehavior: behavior | stationary];
@@ -181,7 +179,29 @@ pub fn run() {
 
             Ok(())
         })
-        .on_window_event(|_window, event| {
+        .on_window_event(|window, event| {
+            let label = window.label();
+            match event {
+                tauri::WindowEvent::CloseRequested { .. } => {
+                    log::info!("[window] close requested: label={}", label);
+                }
+                tauri::WindowEvent::Destroyed => {
+                    if label == "settings" {
+                        log::warn!("[window] settings window destroyed unexpectedly");
+                    } else {
+                        log::info!("[window] destroyed: label={}", label);
+                    }
+                }
+                tauri::WindowEvent::Focused(focused) => {
+                    log::info!(
+                        "[window] focus changed: label={}, focused={}",
+                        label,
+                        focused
+                    );
+                }
+                _ => {}
+            }
+
             // When the window is destroyed (app closing), restore the Dock
             // if suppress was enabled so the user isn't left without it.
             if let tauri::WindowEvent::Destroyed = event {
@@ -201,9 +221,7 @@ pub fn run() {
                         .args(["write", "com.apple.dock", "autohide", "-bool", val])
                         .status();
 
-                    let _ = std::process::Command::new("killall")
-                        .arg("Dock")
-                        .status();
+                    let _ = std::process::Command::new("killall").arg("Dock").status();
                 }
             }
         })
@@ -226,13 +244,11 @@ fn request_macos_permissions() {
             fn AXIsProcessTrustedWithOptions(options: *const std::ffi::c_void) -> bool;
         }
 
-        let key: *const objc::runtime::Object =
-            objc::msg_send![objc::class!(NSString), stringWithUTF8String:
+        let key: *const objc::runtime::Object = objc::msg_send![objc::class!(NSString), stringWithUTF8String:
                 b"AXTrustedCheckOptionPrompt\0".as_ptr()];
         let yes: *const objc::runtime::Object =
             objc::msg_send![objc::class!(NSNumber), numberWithBool: true];
-        let options: *const objc::runtime::Object =
-            objc::msg_send![objc::class!(NSDictionary),
+        let options: *const objc::runtime::Object = objc::msg_send![objc::class!(NSDictionary),
                 dictionaryWithObject: yes
                 forKey: key];
 
@@ -248,14 +264,19 @@ fn request_macos_permissions() {
     //    shows the Automation permission prompt on first run.
     std::thread::spawn(|| {
         let output = std::process::Command::new("osascript")
-            .args(["-e", r#"tell application "System Events" to return name of first process"#])
+            .args([
+                "-e",
+                r#"tell application "System Events" to return name of first process"#,
+            ])
             .output();
         match output {
             Ok(o) if o.status.success() => {
                 log::info!("[permissions] Automation (System Events): granted.");
             }
             _ => {
-                log::warn!("[permissions] Automation (System Events): NOT granted or prompt shown.");
+                log::warn!(
+                    "[permissions] Automation (System Events): NOT granted or prompt shown."
+                );
             }
         }
     });
@@ -279,9 +300,7 @@ fn request_macos_permissions() {
             if granted {
                 log::info!("[permissions] Screen Recording: granted after prompt.");
             } else {
-                log::warn!(
-                    "[permissions] Screen Recording: user must grant manually and restart."
-                );
+                log::warn!("[permissions] Screen Recording: user must grant manually and restart.");
             }
         }
     }

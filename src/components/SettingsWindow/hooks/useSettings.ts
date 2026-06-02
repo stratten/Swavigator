@@ -11,6 +11,7 @@ function feLog(level: string, message: string) {
 export interface SettingsState {
   viewMode: ViewMode;
   spaceNameFontSize: number;
+  spaceNameBold: boolean;
   windowFontSize: number;
   fontFamily: string;
   suppressDock: boolean;
@@ -35,6 +36,7 @@ export interface UseSettingsReturn {
   state: SettingsState;
   setViewMode: (mode: ViewMode) => void;
   setSpaceNameFontSize: (size: number) => void;
+  setSpaceNameBold: (enabled: boolean) => void;
   setWindowFontSize: (size: number) => void;
   setFontFamily: (font: string) => void;
   setSuppressDock: (suppress: boolean) => void;
@@ -60,6 +62,7 @@ export interface UseSettingsReturn {
 export function useSettings(): UseSettingsReturn {
   const [viewMode, setViewModeState] = useState<ViewMode>("compact");
   const [spaceNameFontSize, setSpaceNameFontSizeState] = useState(13);
+  const [spaceNameBold, setSpaceNameBoldState] = useState(false);
   const [windowFontSize, setWindowFontSizeState] = useState(12);
   const [fontFamily, setFontFamilyState] = useState(
     '"Helvetica Neue", Helvetica, Arial, sans-serif',
@@ -93,6 +96,7 @@ export function useSettings(): UseSettingsReturn {
         settingsRef.current = s;
         setViewModeState((s.viewMode as ViewMode) || "compact");
         if (s.spaceNameFontSize) setSpaceNameFontSizeState(s.spaceNameFontSize);
+        if (s.spaceNameBold != null) setSpaceNameBoldState(s.spaceNameBold);
         if (s.windowFontSize) setWindowFontSizeState(s.windowFontSize);
         if (s.fontFamily) setFontFamilyState(s.fontFamily);
         if (s.suppressDock != null) setSuppressDockState(!!s.suppressDock);
@@ -133,6 +137,7 @@ export function useSettings(): UseSettingsReturn {
         settingsRef.current = { ...settingsRef.current, ...s };
       }
       if (s.orientation) setOrientationState(s.orientation as "vertical" | "horizontal");
+      if (s.spaceNameBold !== undefined) setSpaceNameBoldState(s.spaceNameBold);
       if (s.dockMode !== undefined) setDockModeState(s.dockMode);
       if (s.dockEdge) setDockEdgeState(s.dockEdge as "left" | "right" | "top" | "bottom");
       if (s.dockTriggerSize != null) setDockTriggerSizeState(s.dockTriggerSize);
@@ -159,6 +164,7 @@ export function useSettings(): UseSettingsReturn {
         viewMode: base?.viewMode ?? viewMode,
         spaceViewModes: base?.spaceViewModes ?? {},
         spaceNameFontSize: base?.spaceNameFontSize ?? spaceNameFontSize,
+        spaceNameBold: base?.spaceNameBold ?? spaceNameBold,
         windowFontSize: base?.windowFontSize ?? windowFontSize,
         expandedWidth: base?.expandedWidth ?? 280,
         expandedHeight: base?.expandedHeight ?? 400,
@@ -195,7 +201,7 @@ export function useSettings(): UseSettingsReturn {
       });
       emit("settings-changed", merged);
     },
-    [viewMode, spaceNameFontSize, windowFontSize, fontFamily, toggleHotkey, lowOpacityWhenIdle, idleOpacity, highlightRunningApps, orientation, showMinimized, dockMode, dockEdge, dockTriggerSize, dockTriggerOpacity, dockHideDelay, enableTodos, enableLogging],
+    [viewMode, spaceNameFontSize, spaceNameBold, windowFontSize, fontFamily, toggleHotkey, lowOpacityWhenIdle, idleOpacity, highlightRunningApps, orientation, showMinimized, dockMode, dockEdge, dockTriggerSize, dockTriggerOpacity, dockHideDelay, enableTodos, enableLogging],
   );
 
   // Wrapped setters that also persist.
@@ -211,6 +217,14 @@ export function useSettings(): UseSettingsReturn {
     (size: number) => {
       setSpaceNameFontSizeState(size);
       updateSetting({ spaceNameFontSize: size });
+    },
+    [updateSetting],
+  );
+
+  const setSpaceNameBold = useCallback(
+    (enabled: boolean) => {
+      setSpaceNameBoldState(enabled);
+      updateSetting({ spaceNameBold: enabled });
     },
     [updateSetting],
   );
@@ -355,6 +369,7 @@ export function useSettings(): UseSettingsReturn {
     state: {
       viewMode,
       spaceNameFontSize,
+      spaceNameBold,
       windowFontSize,
       fontFamily,
       suppressDock,
@@ -376,6 +391,7 @@ export function useSettings(): UseSettingsReturn {
     },
     setViewMode,
     setSpaceNameFontSize,
+    setSpaceNameBold,
     setWindowFontSize,
     setFontFamily,
     setSuppressDock,

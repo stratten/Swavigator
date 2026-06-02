@@ -97,6 +97,10 @@ pub struct StoredData {
     #[serde(default)]
     pub collapsed_by_space_id: HashMap<i64, bool>,
 
+    /// Space name color overrides keyed by spaceId (macOS ManagedSpaceID).
+    #[serde(default)]
+    pub space_name_colors_by_space_id: HashMap<i64, String>,
+
     /// User settings.
     #[serde(default)]
     pub settings: UserSettings,
@@ -134,6 +138,10 @@ pub struct UserSettings {
     /// Font size (px) for space name labels.
     #[serde(default = "default_space_name_font_size")]
     pub space_name_font_size: u8,
+
+    /// Whether space name labels should render in bold.
+    #[serde(default)]
+    pub space_name_bold: bool,
 
     /// Font size (px) for window/app name text.
     #[serde(default = "default_window_font_size")]
@@ -242,6 +250,7 @@ impl Default for UserSettings {
             view_mode: default_view_mode(),
             space_view_modes: HashMap::new(),
             space_name_font_size: default_space_name_font_size(),
+            space_name_bold: false,
             window_font_size: default_window_font_size(),
             expanded_width: default_expanded_width(),
             expanded_height: default_expanded_height(),
@@ -364,9 +373,7 @@ pub fn load() -> StoredData {
     }
 
     let mut stored: StoredData = match std::fs::read_to_string(&path) {
-        Ok(contents) => {
-            serde_json::from_str(&contents).unwrap_or_default()
-        }
+        Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
         Err(e) => {
             log::warn!("[storage] Failed to read {}: {}", path.display(), e);
             StoredData::default()
@@ -381,7 +388,9 @@ pub fn load() -> StoredData {
             if corrected != entry.entry_type {
                 log::info!(
                     "[storage] Auto-correcting entryType for '{}': '{}' → '{}'",
-                    entry.bundle_id, entry.entry_type, corrected
+                    entry.bundle_id,
+                    entry.entry_type,
+                    corrected
                 );
                 entry.entry_type = corrected;
             }
@@ -456,7 +465,10 @@ pub fn set_label_by_id(space_id: i64, label: &str) -> Result<(), String> {
     );
 
     if label.is_empty() {
-        log::info!("[storage] set_label_by_id — removing label for space_id={}", space_id);
+        log::info!(
+            "[storage] set_label_by_id — removing label for space_id={}",
+            space_id
+        );
         data.labels_by_space_id.remove(&space_id);
     } else {
         log::info!(
@@ -468,7 +480,11 @@ pub fn set_label_by_id(space_id: i64, label: &str) -> Result<(), String> {
     }
 
     // Sync lastAssignedTo on all todos currently assigned to this space.
-    let new_label = if label.is_empty() { None } else { Some(label.to_string()) };
+    let new_label = if label.is_empty() {
+        None
+    } else {
+        Some(label.to_string())
+    };
     for todo in &mut data.todos {
         if todo.space_id == Some(space_id) {
             todo.last_assigned_to = new_label.clone();
@@ -485,6 +501,27 @@ pub fn set_label_by_id(space_id: i64, label: &str) -> Result<(), String> {
         Err(e) => log::error!("[storage] set_label_by_id — save failed: {}", e),
     }
     result
+}
+
+/// Set or clear the name color for a space by spaceId. Saves immediately.
+pub fn set_space_name_color_by_id(space_id: i64, color: Option<&str>) -> Result<(), String> {
+    let mut data = load();
+    match color.map(str::trim).filter(|c| !c.is_empty()) {
+        Some(color) => {
+            data.space_name_colors_by_space_id
+                .insert(space_id, color.to_string());
+        }
+        None => {
+            data.space_name_colors_by_space_id.remove(&space_id);
+        }
+    }
+    save(&data)
+}
+
+/// Get the name color override for a space by spaceId.
+pub fn get_space_name_color_by_id(space_id: i64) -> Option<String> {
+    let data = load();
+    data.space_name_colors_by_space_id.get(&space_id).cloned()
 }
 
 /// [LEGACY] Get the label for a space by displayId:spaceIndex.
@@ -618,7 +655,12 @@ pub fn delete_app_group(id: &str) -> Result<(), String> {
 }
 
 /// Add an entry to a group. Prevents duplicates within the same group.
-pub fn add_app_to_group(group_id: &str, bundle_id: &str, name: &str, entry_type: &str) -> Result<(), String> {
+pub fn add_app_to_group(
+    group_id: &str,
+    bundle_id: &str,
+    name: &str,
+    entry_type: &str,
+) -> Result<(), String> {
     let mut data = load();
     let group = data
         .app_groups
@@ -671,7 +713,9 @@ pub fn reorder_app_groups(ordered_ids: &[String]) -> Result<(), String> {
 
 /// Batch-update the collapsed state for all app groups in a single disk write.
 /// Expects a map of group ID → collapsed bool.
-pub fn batch_update_collapsed(collapsed_map: &std::collections::HashMap<String, bool>) -> Result<(), String> {
+pub fn batch_update_collapsed(
+    collapsed_map: &std::collections::HashMap<String, bool>,
+) -> Result<(), String> {
     let mut data = load();
     for group in data.app_groups.iter_mut() {
         if let Some(&collapsed) = collapsed_map.get(&group.id) {
@@ -793,7 +837,11 @@ pub fn move_todo(todo_id: &str, to_space_id: Option<i64>) -> Result<(), String> 
 /// Called when a space is renamed.
 pub fn sync_todo_labels(space_id: i64, label: &str) {
     let mut data = load();
-    let new_label = if label.is_empty() { None } else { Some(label.to_string()) };
+    let new_label = if label.is_empty() {
+        None
+    } else {
+        Some(label.to_string())
+    };
     let mut changed = false;
     for todo in &mut data.todos {
         if todo.space_id == Some(space_id) && todo.last_assigned_to != new_label {

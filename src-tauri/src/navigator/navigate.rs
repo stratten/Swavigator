@@ -1,8 +1,8 @@
 //! Space and window navigation.
 
-use crate::spaces::SpaceInfo;
 #[cfg(target_os = "macos")]
 use super::cgs;
+use crate::spaces::SpaceInfo;
 #[cfg(target_os = "macos")]
 use std::thread;
 #[cfg(target_os = "macos")]
@@ -482,7 +482,8 @@ fn navigate_to_window_macos(
 ) -> Result<(), String> {
     log::info!(
         "[nav] Navigating to window '{}' of app '{}'.",
-        window_title, app_name
+        window_title,
+        app_name
     );
     let primary_result = navigate_via_window(window_title);
 

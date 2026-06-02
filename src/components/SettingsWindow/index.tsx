@@ -1,9 +1,14 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { useSettings } from "./hooks/useSettings";
 import { SectionHeader, SettingRow, StyledSelect, ToggleSwitch } from "./components/FormControls";
 import { HotkeyRecorder } from "./components/HotkeyRecorder";
+
+function feLog(level: string, message: string) {
+  invoke("log_from_frontend", { level, message }).catch(() => {});
+}
 
 /**
  * Standalone Settings window that runs in its own Tauri WebviewWindow.
@@ -15,6 +20,7 @@ export function SettingsWindow() {
     state,
     setViewMode,
     setSpaceNameFontSize,
+    setSpaceNameBold,
     setWindowFontSize,
     setFontFamily,
     setSuppressDock,
@@ -33,7 +39,27 @@ export function SettingsWindow() {
   } = useSettings();
 
   const handleClose = useCallback(() => {
-    getCurrentWindow().close();
+    feLog("info", "[SettingsWindow] close requested -> hiding window");
+    getCurrentWindow()
+      .hide()
+      .then(() => feLog("info", "[SettingsWindow] hide succeeded"))
+      .catch((err) => feLog("error", `[SettingsWindow] hide failed: ${err}`));
+  }, []);
+
+  useEffect(() => {
+    const win = getCurrentWindow();
+    const unlisten = win.onCloseRequested((event) => {
+      feLog("info", "[SettingsWindow] native close requested -> preventing destroy and hiding");
+      event.preventDefault();
+      win
+        .hide()
+        .then(() => feLog("info", "[SettingsWindow] native close hide succeeded"))
+        .catch((err) => feLog("error", `[SettingsWindow] native close hide failed: ${err}`));
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
   }, []);
 
   if (!state.loaded) {
@@ -112,14 +138,29 @@ export function SettingsWindow() {
         </SettingRow>
 
         <SettingRow label="Space Name Size">
-          <StyledSelect
-            value={String(state.spaceNameFontSize)}
-            onChange={(val) => setSpaceNameFontSize(Number(val))}
-            options={[10, 11, 12, 13, 14, 15, 16].map((n) => ({
-              value: String(n),
-              label: `${n}px`,
-            }))}
-          />
+          <div className="flex items-center gap-2">
+            <StyledSelect
+              value={String(state.spaceNameFontSize)}
+              onChange={(val) => setSpaceNameFontSize(Number(val))}
+              options={[10, 11, 12, 13, 14, 15, 16].map((n) => ({
+                value: String(n),
+                label: `${n}px`,
+              }))}
+            />
+            <label
+              className="flex items-center gap-1 cursor-pointer"
+              style={{ color: "var(--text-secondary)", fontSize: "12px" }}
+              title="Bold space names"
+            >
+              <input
+                type="checkbox"
+                checked={state.spaceNameBold}
+                onChange={(e) => setSpaceNameBold(e.target.checked)}
+                style={{ margin: 0 }}
+              />
+              Bold
+            </label>
+          </div>
         </SettingRow>
 
         <SettingRow label="Window Name Size">
