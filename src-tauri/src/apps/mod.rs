@@ -10,7 +10,7 @@ use serde::Serialize;
 // Re-export all public functions.
 pub use discovery::{get_dock_apps, get_installed_apps, get_running_apps};
 pub use dock::{get_app_badge_counts, show_dock_menu};
-pub use lifecycle::{launch_app, quit_app};
+pub use lifecycle::{launch_app, quit_app, restart_app};
 pub use open::{get_path_icon, open_path, open_url};
 
 // ---------------------------------------------------------------------------

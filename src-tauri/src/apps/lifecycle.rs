@@ -116,3 +116,95 @@ for app in apps {{
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Restart (quit, wait for exit, relaunch)
+// ---------------------------------------------------------------------------
+
+/// Quit a running application, wait for it to exit, then launch it again.
+///
+/// Blocks for up to ~15 seconds while waiting for the app to terminate, so
+/// callers should run it off the main thread. Fails (without relaunching) if
+/// the app is still running afterwards, for example because it is waiting on
+/// a "save changes" dialog.
+pub fn restart_app(bundle_id: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        restart_app_macos(bundle_id)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = bundle_id;
+        Err("App restarting is only available on macOS.".to_string())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn restart_app_macos(bundle_id: &str) -> Result<(), String> {
+    let swift_src = format!(
+        r#"
+import Cocoa
+
+let bundleId = "{bundle_id}"
+let apps = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
+
+if apps.isEmpty {{
+    fputs("ERR: No running app found for bundle ID: \(bundleId)\n", stderr)
+    exit(1)
+}}
+
+let appURL = apps.first?.bundleURL
+    ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId)
+
+for app in apps {{ app.terminate() }}
+
+var waited = 0.0
+while waited < 15.0 && apps.contains(where: {{ !$0.isTerminated }}) {{
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.25))
+    waited += 0.25
+}}
+
+if apps.contains(where: {{ !$0.isTerminated }}) {{
+    fputs("ERR: App did not quit within 15 seconds (it may be waiting on a save dialog).\n", stderr)
+    exit(2)
+}}
+
+guard let url = appURL else {{
+    fputs("ERR: Could not locate the app to relaunch.\n", stderr)
+    exit(3)
+}}
+
+let config = NSWorkspace.OpenConfiguration()
+config.activates = false
+
+let semaphore = DispatchSemaphore(value: 0)
+var launchError: Error?
+
+NSWorkspace.shared.openApplication(at: url, configuration: config) {{ _, error in
+    launchError = error
+    semaphore.signal()
+}}
+
+semaphore.wait()
+
+if let error = launchError {{
+    fputs("ERR: Failed to relaunch: \(error.localizedDescription)\n", stderr)
+    exit(4)
+}}
+"#
+    );
+
+    let output = std::process::Command::new("swift")
+        .arg("-e")
+        .arg(&swift_src)
+        .output()
+        .map_err(|e| format!("Failed to run Swift: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("App restart failed: {}", stderr.trim()));
+    }
+
+    Ok(())
+}

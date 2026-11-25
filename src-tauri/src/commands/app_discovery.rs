@@ -355,6 +355,106 @@ pub fn launch_app(bundle_id: String) -> Result<(), String> {
     apps::launch_app(&bundle_id)
 }
 
+/// Apps that must never be quit or restarted from the panel.
+const PROTECTED_BUNDLE_IDS: &[&str] = &["com.apple.finder"];
+
+/// Validate a bundle ID before it is interpolated into a Swift script, and
+/// refuse to act on Swavigator itself or on protected system apps.
+fn validate_lifecycle_target(app: &tauri::AppHandle, bundle_id: &str) -> Result<(), String> {
+    let valid = !bundle_id.is_empty()
+        && bundle_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_');
+    if !valid {
+        return Err(format!("Invalid bundle ID: '{bundle_id}'"));
+    }
+    if bundle_id == app.config().identifier || PROTECTED_BUNDLE_IDS.contains(&bundle_id) {
+        return Err("This app cannot be quit or restarted from here.".to_string());
+    }
+    Ok(())
+}
+
+/// Icons already fetched this session, keyed by bundle ID. An empty string
+/// means the lookup was tried and found nothing, so it is not retried.
+static ICON_CACHE: std::sync::OnceLock<std::sync::Mutex<HashMap<String, String>>> =
+    std::sync::OnceLock::new();
+
+/// Fetch icons for many apps at once. Cached ones return immediately; every
+/// missing one is resolved in a single Swift process instead of one per app.
+#[tauri::command]
+pub async fn get_app_icons(bundle_ids: Vec<String>) -> Result<HashMap<String, String>, String> {
+    let cache = ICON_CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+
+    let missing: Vec<String> = {
+        let guard = cache.lock().map_err(|_| "icon cache poisoned".to_string())?;
+        bundle_ids
+            .iter()
+            .filter(|id| !id.is_empty() && !guard.contains_key(*id))
+            .filter(|id| {
+                id.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+            })
+            .cloned()
+            .collect()
+    };
+
+    #[cfg(target_os = "macos")]
+    if !missing.is_empty() {
+        let to_fetch = missing.clone();
+        let fetched = tokio::task::spawn_blocking(move || {
+            let refs: Vec<&str> = to_fetch.iter().map(|s| s.as_str()).collect();
+            batch_get_app_icons(&refs)
+        })
+        .await
+        .map_err(|e| format!("icon task failed: {e}"))?;
+
+        let mut guard = cache.lock().map_err(|_| "icon cache poisoned".to_string())?;
+        match fetched {
+            Ok(map) => {
+                for id in &missing {
+                    guard.insert(id.clone(), map.get(id).cloned().unwrap_or_default());
+                }
+            }
+            Err(e) => log::warn!("[cmd] get_app_icons: batch fetch failed: {e}"),
+        }
+    }
+
+    let guard = cache.lock().map_err(|_| "icon cache poisoned".to_string())?;
+    Ok(bundle_ids
+        .into_iter()
+        .filter_map(|id| guard.get(&id).filter(|v| !v.is_empty()).map(|v| (id, v.clone())))
+        .collect())
+}
+
+/// Count window-server surfaces per app, so apps that pile up hidden
+/// windows stand out.
+#[tauri::command]
+pub async fn get_window_surfaces() -> Result<Vec<crate::windows::SurfaceSummary>, String> {
+    tokio::task::spawn_blocking(crate::windows::surface_census)
+        .await
+        .map_err(|e| format!("surface census task failed: {e}"))
+}
+
+/// Ask a running application to quit (equivalent to Cmd+Q).
+#[tauri::command]
+pub async fn quit_app(app: tauri::AppHandle, bundle_id: String) -> Result<(), String> {
+    log::info!("[cmd] quit_app: bundle='{}'", bundle_id);
+    validate_lifecycle_target(&app, &bundle_id)?;
+    tokio::task::spawn_blocking(move || apps::quit_app(&bundle_id))
+        .await
+        .map_err(|e| format!("quit task failed: {e}"))?
+}
+
+/// Quit a running application, wait for it to exit, then launch it again.
+#[tauri::command]
+pub async fn restart_app(app: tauri::AppHandle, bundle_id: String) -> Result<(), String> {
+    log::info!("[cmd] restart_app: bundle='{}'", bundle_id);
+    validate_lifecycle_target(&app, &bundle_id)?;
+    tokio::task::spawn_blocking(move || apps::restart_app(&bundle_id))
+        .await
+        .map_err(|e| format!("restart task failed: {e}"))?
+}
+
 /// Open a file or folder by its absolute path.
 #[tauri::command]
 pub fn open_path(path: String) -> Result<(), String> {

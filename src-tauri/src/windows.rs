@@ -485,3 +485,220 @@ fn cf_f64(dict: &CFDictionary, key: &'static str) -> Option<f64> {
 fn cf_dictionary(dict: &CFDictionary, key: &'static str) -> Option<CFDictionary> {
     cf_value(dict, key).and_then(|value| value.downcast::<CFDictionary>())
 }
+
+// ---------------------------------------------------------------------------
+// Window-server surface census
+// ---------------------------------------------------------------------------
+//
+// The window server tracks far more surfaces than the windows a user sees:
+// per-display menu bar strips, 1-pixel helper windows, invisible full-screen
+// overlays, and so on. Most are normal, but an app that never releases its
+// invisible overlays can pile up hundreds of them and slow compositing down.
+// This census counts every surface per owning app, split by kind, so such
+// apps stand out.
+
+/// Window-server surface counts for one application (or background process).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SurfaceSummary {
+    /// Bundle ID, or empty when the owner has none (command-line helpers).
+    pub bundle_id: String,
+    pub name: String,
+    pub pid: i32,
+    /// Regular (Dock-visible) app, as opposed to a background agent.
+    pub is_regular: bool,
+    /// Every surface the window server holds for this app.
+    pub total: u32,
+    /// Normal windows currently on screen.
+    pub visible: u32,
+    /// Normal-size windows that are not on screen (other spaces, minimized, cached).
+    pub offscreen: u32,
+    /// Fully transparent surfaces of real size (leak-prone overlays).
+    pub invisible: u32,
+    /// Non-zero-layer surfaces of real size: popups, overlays, panels.
+    pub overlays: u32,
+    /// Menu-bar-sized strips (macOS creates these per app per display).
+    pub menu_strips: u32,
+    /// Surfaces 50 px or smaller in either dimension (input and drawing plumbing).
+    pub helpers: u32,
+    /// Memory footprint of the whole app (main process plus helpers inside its
+    /// bundle), as Activity Monitor reports it. Zero when it cannot be read.
+    pub memory_bytes: u64,
+    /// Number of processes counted in `memory_bytes`.
+    pub process_count: u32,
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn proc_listallpids(buffer: *mut c_void, buffer_size: i32) -> i32;
+    fn proc_pidpath(pid: i32, buffer: *mut c_void, buffer_size: u32) -> i32;
+    fn proc_pid_rusage(pid: i32, flavor: i32, buffer: *mut c_void) -> i32;
+}
+
+/// Prefix of `rusage_info_v0` (flavor 0), enough to reach the memory footprint.
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Default)]
+struct RusageInfoV0 {
+    uuid: [u8; 16],
+    user_time: u64,
+    system_time: u64,
+    pkg_idle_wkups: u64,
+    interrupt_wkups: u64,
+    pageins: u64,
+    wired_size: u64,
+    resident_size: u64,
+    phys_footprint: u64,
+    proc_start_abstime: u64,
+    proc_exit_abstime: u64,
+}
+
+#[cfg(target_os = "macos")]
+fn pid_path(pid: i32) -> Option<String> {
+    let mut buf = vec![0u8; 4096];
+    let len = unsafe { proc_pidpath(pid, buf.as_mut_ptr() as *mut c_void, buf.len() as u32) };
+    if len <= 0 {
+        return None;
+    }
+    buf.truncate(len as usize);
+    String::from_utf8(buf).ok()
+}
+
+/// Outermost `.app` bundle path of an executable path, e.g.
+/// `/Applications/Cursor.app/Contents/Frameworks/Cursor Helper.app/...` -> `/Applications/Cursor.app`.
+#[cfg(target_os = "macos")]
+fn app_bundle_prefix(path: &str) -> Option<&str> {
+    path.find(".app/").map(|idx| &path[..idx + 4])
+}
+
+/// Memory footprint and process count per outermost app bundle, from one pass
+/// over every process. Helpers (renderers, GPU, extension hosts) live inside
+/// the main app's bundle, so they roll up into it.
+#[cfg(target_os = "macos")]
+fn memory_by_bundle() -> HashMap<String, (u64, u32)> {
+    let mut pids = vec![0i32; 8192];
+    let count = unsafe {
+        proc_listallpids(
+            pids.as_mut_ptr() as *mut c_void,
+            (pids.len() * std::mem::size_of::<i32>()) as i32,
+        )
+    };
+    let mut result: HashMap<String, (u64, u32)> = HashMap::new();
+    if count <= 0 {
+        return result;
+    }
+    pids.truncate((count as usize).min(8192));
+
+    for pid in pids {
+        if pid <= 0 {
+            continue;
+        }
+        let Some(path) = pid_path(pid) else { continue };
+        let Some(prefix) = app_bundle_prefix(&path) else { continue };
+        let mut info = RusageInfoV0::default();
+        let rc = unsafe { proc_pid_rusage(pid, 0, &mut info as *mut _ as *mut c_void) };
+        if rc != 0 {
+            continue; // Not readable (other user or protected process).
+        }
+        let entry = result.entry(prefix.to_string()).or_insert((0, 0));
+        entry.0 += info.phys_footprint;
+        entry.1 += 1;
+    }
+    result
+}
+
+/// Count window-server surfaces per owning app, largest first.
+pub fn surface_census() -> Vec<SurfaceSummary> {
+    #[cfg(target_os = "macos")]
+    {
+        surface_census_macos()
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Vec::new()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn surface_census_macos() -> Vec<SurfaceSummary> {
+    let window_list_ref = unsafe { CGWindowListCopyWindowInfo(K_CG_WINDOW_LIST_OPTION_ALL, 0) };
+    if window_list_ref.is_null() {
+        log::error!("[windows] surface census: CGWindowListCopyWindowInfo failed.");
+        return Vec::new();
+    }
+
+    // Fresh lookup (not the cached map) so newly launched apps resolve.
+    let running_apps = load_running_apps_by_pid();
+    let memory = memory_by_bundle();
+    let window_list: CFArray = unsafe { CFArray::wrap_under_create_rule(window_list_ref) };
+    let mut by_app: HashMap<String, SurfaceSummary> = HashMap::new();
+
+    for window_raw in window_list.get_all_values() {
+        let window_value = unsafe { CFType::wrap_under_get_rule(window_raw as CFTypeRef) };
+        let Some(window) = window_value.downcast::<CFDictionary>() else {
+            continue;
+        };
+        let Some(owner_name) = cf_string(&window, "kCGWindowOwnerName") else {
+            continue;
+        };
+
+        let pid = cf_i64(&window, "kCGWindowOwnerPID").unwrap_or(0) as i32;
+        let layer = cf_i64(&window, "kCGWindowLayer").unwrap_or(0);
+        let alpha = cf_f64(&window, "kCGWindowAlpha").unwrap_or(1.0);
+        let on_screen = cf_value(&window, "kCGWindowIsOnscreen")
+            .and_then(|value| value.downcast::<CFBoolean>())
+            .map(bool::from)
+            .unwrap_or(false);
+        let (width, height) = cf_dictionary(&window, "kCGWindowBounds")
+            .and_then(|bounds| Some((cf_f64(&bounds, "Width")?, cf_f64(&bounds, "Height")?)))
+            .unwrap_or((0.0, 0.0));
+
+        let (bundle_id, is_regular) = running_apps
+            .get(&pid)
+            .map(|app| (app.bundle_id.clone(), app.is_regular))
+            .unwrap_or_default();
+        let key = app_key(&bundle_id, &owner_name);
+
+        let entry = by_app.entry(key).or_insert_with(|| {
+            let (memory_bytes, process_count) = pid_path(pid)
+                .and_then(|path| app_bundle_prefix(&path).and_then(|p| memory.get(p).copied()))
+                .unwrap_or((0, 0));
+            SurfaceSummary {
+                bundle_id,
+                name: owner_name,
+                pid,
+                is_regular,
+                total: 0,
+                visible: 0,
+                offscreen: 0,
+                invisible: 0,
+                overlays: 0,
+                menu_strips: 0,
+                helpers: 0,
+                memory_bytes,
+                process_count,
+            }
+        });
+
+        entry.total += 1;
+        // Order matters: each surface lands in exactly one bucket.
+        if height <= 45.0 && width >= 800.0 {
+            entry.menu_strips += 1;
+        } else if width <= 50.0 || height <= 50.0 {
+            entry.helpers += 1;
+        } else if alpha < 0.01 {
+            entry.invisible += 1;
+        } else if layer != 0 {
+            entry.overlays += 1;
+        } else if on_screen {
+            entry.visible += 1;
+        } else {
+            entry.offscreen += 1;
+        }
+    }
+
+    let mut summaries: Vec<SurfaceSummary> = by_app.into_values().collect();
+    summaries.sort_by(|a, b| b.total.cmp(&a.total).then_with(|| a.name.cmp(&b.name)));
+    summaries
+}

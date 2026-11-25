@@ -50,6 +50,44 @@ export interface SpaceStatePayload {
   timestamp: number;
 }
 
+/** One running application and how many windows it currently has open. */
+export interface AppProcess {
+  /** Owning application's bundle identifier. */
+  bundleId: string;
+  /** Application name. */
+  name: string;
+  /** Total windows (on spaces plus minimized). */
+  windowCount: number;
+  /** How many of those windows are minimized. */
+  minimizedCount: number;
+  /** Number of distinct spaces the app's windows are spread across. */
+  spaceCount: number;
+}
+
+/** Window-server surface counts for one app, split by kind (see backend census). */
+export interface SurfaceSummary {
+  bundleId: string;
+  name: string;
+  pid: number;
+  isRegular: boolean;
+  /** Every surface the window server holds for this app. */
+  total: number;
+  visible: number;
+  offscreen: number;
+  /** Fully transparent surfaces of real size (leak-prone). */
+  invisible: number;
+  /** Non-zero-layer surfaces of real size (popups, overlays, panels). */
+  overlays: number;
+  /** Menu-bar-sized strips, created per app per display by macOS. */
+  menuStrips: number;
+  /** Surfaces 50 px or smaller in either dimension. */
+  helpers: number;
+  /** Memory footprint of the app and its helper processes; 0 when unreadable. */
+  memoryBytes: number;
+  /** Processes counted in memoryBytes. */
+  processCount: number;
+}
+
 /** Visualization modes for window display. */
 export type ViewMode = "compact" | "list" | "hybrid" | "count";
 

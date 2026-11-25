@@ -7,7 +7,7 @@ import { useSpaceState } from "../../hooks/useSpaceState";
 import { useHotkeys } from "../../hooks/useHotkeys";
 import { useAppIcons } from "../../hooks/useAppIcons";
 import { useAppGroups } from "../../hooks/useAppGroups";
-import type { ViewMode, TodoItem } from "../../lib/types";
+import type { ViewMode, TodoItem, AppProcess } from "../../lib/types";
 
 // Local hooks
 import { useSettingsPersistence } from "./hooks/useSettingsPersistence";
@@ -62,6 +62,36 @@ export function FloatingPanel() {
     return Array.from(ids);
   }, [spaces, minimizedWindows]);
   const appIcons = useAppIcons(bundleIds);
+
+  // Windows per running app (spaces plus minimized), most windows first.
+  const appProcesses = useMemo<AppProcess[]>(() => {
+    const byBundle = new Map<string, AppProcess & { spaceIds: Set<number> }>();
+    const add = (w: { bundleId: string; appName: string; isMinimized: boolean; spaceId: number }, minimized: boolean) => {
+      if (!w.bundleId) return;
+      let entry = byBundle.get(w.bundleId);
+      if (!entry) {
+        entry = {
+          bundleId: w.bundleId,
+          name: w.appName,
+          windowCount: 0,
+          minimizedCount: 0,
+          spaceCount: 0,
+          spaceIds: new Set<number>(),
+        };
+        byBundle.set(w.bundleId, entry);
+      }
+      entry.windowCount += 1;
+      if (minimized || w.isMinimized) entry.minimizedCount += 1;
+      else entry.spaceIds.add(w.spaceId);
+    };
+    for (const space of spaces) {
+      for (const w of space.windows) add(w, false);
+    }
+    for (const w of minimizedWindows) add(w, true);
+    return Array.from(byBundle.values())
+      .map(({ spaceIds, ...rest }) => ({ ...rest, spaceCount: spaceIds.size }))
+      .sort((a, b) => b.windowCount - a.windowCount || a.name.localeCompare(b.name));
+  }, [spaces, minimizedWindows]);
 
   // Set of currently running bundle IDs (for the running-app indicator).
   const runningBundleIds = useMemo(() => new Set(bundleIds), [bundleIds]);
@@ -443,6 +473,7 @@ export function FloatingPanel() {
 
       {orientation === "horizontal" ? (
         <HorizontalLayout
+          appProcesses={appProcesses}
           containerRef={containerRef}
           loading={loading}
           filteredSpaces={filteredSpaces}
@@ -482,6 +513,7 @@ export function FloatingPanel() {
         />
       ) : (
         <VerticalLayout
+          appProcesses={appProcesses}
           containerRef={containerRef}
           loading={loading}
           filteredSpaces={filteredSpaces}

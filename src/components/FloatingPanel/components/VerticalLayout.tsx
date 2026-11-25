@@ -1,6 +1,7 @@
 import React from "react";
 import { SpaceCard } from "../../SpaceCard";
-import { AppTray } from "../../AppTray";
+import { BottomPane } from "../../BottomPane";
+import type { AppProcess } from "../../../lib/types";
 import { MinimizedSection } from "./MinimizedSection";
 import type { ViewMode, SpaceInfo, WindowInfo, AppGroup, EntryType } from "../../../lib/types";
 
@@ -44,6 +45,8 @@ interface VerticalLayoutProps {
   onRemoveApp: (groupId: string, bundleId: string) => void;
   onReorderGroups: (ids: string[]) => void;
   runningBundleIds?: Set<string>;
+  /** Running apps with window counts, sorted by count descending. */
+  appProcesses: AppProcess[];
 }
 
 /**
@@ -86,6 +89,7 @@ export function VerticalLayout({
   onRemoveApp,
   onReorderGroups,
   runningBundleIds,
+  appProcesses,
 }: VerticalLayoutProps) {
   return (
     <div
@@ -199,7 +203,10 @@ export function VerticalLayout({
           minHeight: "30px",
         }}
       >
-        <AppTray
+        <BottomPane
+          processes={appProcesses}
+          processIcons={appIcons}
+          fontSize={windowFontSize}
           groups={groups}
           trayVisible={trayVisible}
           appIcons={groupAppIcons}
